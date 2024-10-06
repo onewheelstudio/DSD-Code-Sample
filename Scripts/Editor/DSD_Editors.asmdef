@@ -1,0 +1,20 @@
+{
+    "name": "DSD_Editors",
+    "rootNamespace": "",
+    "references": [
+        "GUID:a87ae2aeaefe7d744a24eba102312dfb",
+        "GUID:74b7ab95492e74e49804395faecc2951",
+        "GUID:552447fb6cdb3d34b969d73c1b33b7d8"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
