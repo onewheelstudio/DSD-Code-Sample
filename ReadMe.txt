@@ -1,4 +1,4 @@
-This project reflects the state of the project Deep Space Directive as of October 5th 2024.
+This repo reflects the state of the project Deep Space Directive as of October 5th 2024.
 
 The demo has been published on Steam. https://store.steampowered.com/app/2510180/Deep_Space_Directive/
 
