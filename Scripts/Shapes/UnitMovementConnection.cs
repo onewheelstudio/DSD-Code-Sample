@@ -11,6 +11,8 @@ public class UnitMovementConnection : MonoBehaviour
 {
     [SerializeField] private Polyline polyline;
     [SerializeReference] private RegularPolygon hexagon;
+    [SerializeField] private Transform noGoIcon;
+    [SerializeField] private Material noGoMaterial;
     public Vector3 destination => hexagon.transform.position;
     [SerializeField] private Vector3 start;
     [SerializeField] private Vector3 end;
@@ -64,9 +66,10 @@ public class UnitMovementConnection : MonoBehaviour
         hexagon.gameObject.SetActive(true);
         hexagon.transform.position = end + Vector3.up * 0.025f;
         hexagon.transform.eulerAngles = new Vector3(90, 90, 0);
+        noGoIcon.position = end + Vector3.up * 0.025f;
+
         StopAllCoroutines();
         StartCoroutine(FadeInHex());
-        Debug.Log("Placing Hex");
     }
 
     private IEnumerator FadeInHex()
@@ -75,14 +78,22 @@ public class UnitMovementConnection : MonoBehaviour
         int alphaStepCount = Mathf.CeilToInt(alpha / alphaStep);
         float sizeStep = hexRadius / alphaStepCount;
         Color hexColor = hexagon.Color;
+        Color noGoColor = this.noGoColor;
 
         hexColor.a = 0f;
         hexagon.Radius = 0f;
+        
+        noGoColor.a = 0f;
+
         while (hexColor.a < alpha)
         {
             hexColor.a += alphaStep;
             hexagon.Color = hexColor;
             hexagon.Radius += sizeStep;
+
+            noGoColor.a += alphaStep;
+            noGoMaterial.SetColor("_BaseColor", noGoColor);
+
             yield return null;
         }
 
@@ -90,6 +101,7 @@ public class UnitMovementConnection : MonoBehaviour
         hexagon.Radius = hexRadius;
         hexColor.a = alpha;
         hexagon.Color = hexColor;
+        noGoMaterial.SetColor("_BaseColor", this.noGoColor);
     }
 
     private int NumberOfPoints => (int)(Vector3.Distance(start, end) / stepSize) + 1;
@@ -122,7 +134,8 @@ public class UnitMovementConnection : MonoBehaviour
             Color hexColor = goColor;
             hexColor.a = hexagon.Color.a;
             hexagon.Color = hexColor;
-
+            hexagon.gameObject.SetActive(true);
+            noGoIcon.gameObject.SetActive(false);
         }
         else
         {
@@ -130,6 +143,8 @@ public class UnitMovementConnection : MonoBehaviour
             Color hexColor = noGoColor;
             hexColor.a = hexagon.Color.a;
             hexagon.Color = hexColor;
+            hexagon.gameObject.SetActive(false);
+            noGoIcon.gameObject.SetActive(true);
         }
     }
 }

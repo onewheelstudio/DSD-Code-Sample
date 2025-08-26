@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using NovaSamples.UIControls;
 
 public class TileToolTip : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
 {
@@ -19,7 +20,7 @@ public class TileToolTip : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
     private void Awake()
     {
         resourceTile = GetComponentInParent<ResourceTile>();
-        placeHolderTile = GetComponentInParent<PlaceHolderTileBehavior>();
+        placeHolderTile = GetComponent<PlaceHolderTileBehavior>();
         fogGroundTile = GetComponentInParent<FogGroundTile>();
     }
 
@@ -45,18 +46,21 @@ public class TileToolTip : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
 
     private string GetTitle()
     {
-        if(resourceTile)
+        if (resourceTile)
             return resourceTile.ResourceType.ToNiceString();
         else if (placeHolderTile)
             return $"{placeHolderTile.TileType.ToNiceString()} Building Site";
         else
-            return "Oops. This shouldn't show up.";
+            return title;
     }
 
     public void OnPointerEnter(PointerEventData eventData)
     {
         if (!PCInputManager.MouseOverVisibleUIObject() && fogGroundTile != null && !fogGroundTile.IsDown)
             openToolTip?.Invoke(GetPopupInfo(), icon, offset, this);
+        else if (!PCInputManager.MouseOverVisibleUIObject() && placeHolderTile != null)
+            openToolTip?.Invoke(GetPopupInfo(), icon, offset, this);
+
     }
 
     public void OnPointerExit(PointerEventData eventData)

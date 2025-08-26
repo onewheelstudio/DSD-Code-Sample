@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using Forge3D;
 using static HexGame.Resources.ResourceProductionBehavior;
+using Sirenix.OdinInspector;
+using System.Linq;
 
 namespace HexGame.Units
 {
@@ -14,8 +16,8 @@ namespace HexGame.Units
     {
         public PlayerUnitType unitType;
         [SerializeField] protected List<StatBoost> statBoosts = new List<StatBoost>();
+        public Dictionary<Stat, float> LocalStats => this.localStats;
         public static event Action<PlayerUnit> playerUnitDamaged;
-        private ColorManager colorManager;
         protected bool isActive = true;
         protected WarningIcons warningIconInstance;
         public bool hasWarningIcon => warningIconInstance != null && warningIconInstance.transform.parent == this.transform;
@@ -42,7 +44,6 @@ namespace HexGame.Units
             location = this.transform.position.ToHex3();
             base.OnEnable();
             stats.upgradeApplied += UpgradeApplied;
-            colorManager = FindObjectOfType<ColorManager>();
             forcefield = this.GetComponentInChildren<Forcefield>();
         }
 
@@ -51,6 +52,7 @@ namespace HexGame.Units
             base.OnDisable();
             stats.upgradeApplied -= UpgradeApplied;
             CargoManager.RemoveAllRequests(this.GetComponent<UnitStorageBehavior>());
+            DayNightManager.toggleDay -= RenewShields;
             //remove reputation
         }
 
@@ -99,6 +101,7 @@ namespace HexGame.Units
                 forcefield.HitCollider(projectile.position);
         }
 
+        [Button]
         public override void DoDamage(float damage)
         {
             playerUnitDamaged?.Invoke(this);
@@ -109,7 +112,7 @@ namespace HexGame.Units
         {
             MessagePanel.ShowMessage($"{unitType.ToNiceString()} was destroyed", this.gameObject);
             base.Die();
-            FindObjectOfType<UnitSelectionManager>().ClearSelection();
+            FindFirstObjectByType<UnitSelectionManager>().ClearSelection();
             this.gameObject.SetActive(false);
             if(unitType != PlayerUnitType.buildingSpot && unitType != PlayerUnitType.cargoShuttle)
                 ReputationManager.ChangeReputation(-(int)GetStat(Stat.reputation));
@@ -121,12 +124,15 @@ namespace HexGame.Units
         public void DeleteUnit()
         {
             MessagePanel.ShowMessage($"{unitType.ToNiceString()} was removed.", this.gameObject);
-            List<ResourceAmount> unitCost = FindObjectOfType<UnitManager>().GetUnitCost(unitType);
+            List<ResourceAmount> unitCost = FindFirstObjectByType<UnitManager>().GetUnitCost(unitType);
+
+            if (this.unitType == PlayerUnitType.buildingSpot)
+                unitCost = this.GetComponent<UnitStorageBehavior>().GetStoredResources().ToList(); ;
 
             float healthPercent = GetHP() / GetStat(Stat.hitPoints);
 
-            FindObjectOfType<CargoManager>().PlaceCubes(unitCost, this.transform.position, healthPercent);
-            FindObjectOfType<UnitSelectionManager>().ClearSelection();
+            FindFirstObjectByType<CargoManager>().PlaceCubes(unitCost, this.transform.position, healthPercent);
+            FindFirstObjectByType<UnitSelectionManager>().ClearSelection();
             ReputationManager.ChangeReputation(-(int)GetStat(Stat.reputation));
             this.gameObject.SetActive(false);
         }
@@ -250,6 +256,16 @@ namespace HexGame.Units
             }
 
             return popUpStats;
+        }
+
+        public void LoadLocalStats(Dictionary<Stat, float> localStats)
+        {
+            this.localStats = localStats;
+            if (localStats.TryGetValue(Stat.shield, out float shield))
+            {
+                DayNightManager.toggleDay -= RenewShields; //making sure we don't double subscribe
+                DayNightManager.toggleDay += RenewShields;
+            }
         }
     }
 }

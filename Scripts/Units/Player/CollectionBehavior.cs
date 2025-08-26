@@ -1,54 +1,59 @@
 using DG.Tweening;
-using HexGame.Grid;
 using HexGame.Resources;
 using HexGame.Units;
-using Sirenix.Utilities;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using System.Linq;
 using static HexGame.Resources.ResourceProductionBehavior;
 
 public class CollectionBehavior : UnitBehavior
 {
     [SerializeField] private ResourceType resource;
-    private Queue<ResourcePickup> pickupList = new Queue<ResourcePickup>();
+    private List<LootManager.LootData> lootList = new List<LootManager.LootData>();
+    [SerializeField] private GameObject lootInstance;
     [SerializeField] private Transform collectionPoint;
     private bool waiting = false;
     private WaitForSeconds processTime = new WaitForSeconds(1f);
 
     [SerializeField] private BeamEmitter beamEmitter;
     private UnitStorageBehavior usb;
-    private int requiredNumberOfWorkers => (int)this.GetStat(Stat.workers);
-    private int numberOfWorkers;
 
-    public static event Action<ResourcePickup> collected;
+    public static event Action<LootManager.LootData> collected;
     public static event Action<ResourceAmount> terreneStored;
 
     private void OnEnable()
     {
-        ResourcePickup.pickUpCreated += TryCollectLoot;
         usb = this.GetComponent<UnitStorageBehavior>();
-        usb.SetAllowedTypes(new List<ResourceType>() { resource });
+        usb.ClearPickupTypes();
+        usb.AddPickUpType(resource);
         usb.resourceDelivered += CheckTotals;
         StatsUpgrade.statUpgradeComplete += ApplyStatUpgrade;
-    }
 
+        LootManager.lootAdded += LootDropped;
+        CollectionBehavior.collected += UpdateLoot;
+        EnemySpawnManager.LootLoaded += CheckForLoot;
+        DayNightManager.transitionToNight += StopCollecting;
+        lootInstance = GameObject.Instantiate(lootInstance); //replace prefab with instance
+        lootInstance.SetActive(false);
+    }
 
     private void OnDisable()
     {
-        ResourcePickup.pickUpCreated -= TryCollectLoot;
         StatsUpgrade.statUpgradeComplete -= ApplyStatUpgrade;
         numberOfWorkers = 0;
         usb.resourceDelivered -= CheckTotals;
         DOTween.Kill(this,true);
+
+        LootManager.lootAdded -= LootDropped;
+        CollectionBehavior.collected -= UpdateLoot;
+        EnemySpawnManager.LootLoaded -= CheckForLoot;
+        DayNightManager.transitionToNight -= StopCollecting;
     }
 
     public override void StartBehavior()
     {
         isFunctional = requiredNumberOfWorkers <= numberOfWorkers;
-        usb.RequestWorkers();
         DisplayWarning();
     }
 
@@ -84,7 +89,7 @@ public class CollectionBehavior : UnitBehavior
         else if (numberOfWorkers == 0)
             issueList.Add(ProductionIssue.noWorkers);
 
-        if(!usb.CanStoreResource(new ResourceAmount(ResourceType.Terrene, 1)))
+        if(!usb.CanStoreForPickup(new ResourceAmount(ResourceType.Terrene, 1)))
             issueList.Add(ProductionIssue.fullStorage);
 
         if (issueList.Count == 0 && hasWarningIcon)
@@ -93,7 +98,7 @@ public class CollectionBehavior : UnitBehavior
             return;
         }
 
-        if (!hasWarningIcon)
+        if (warningIconInstance == null)
         {
             warningIconInstance = UnitManager.warningIcons.PullGameObject(this.transform.position, Quaternion.identity).GetComponent<WarningIcons>();
             warningIconInstance.transform.SetParent(this.transform);
@@ -107,80 +112,89 @@ public class CollectionBehavior : UnitBehavior
 
         while(isFunctional)
         {
+            if(!DayNightManager.isDay)
+            {
+                yield return null;
+                continue;
+            }
+
             WaitForSeconds wait = new WaitForSeconds(3f / GameConstants.GameSpeed);
             DisplayWarning();
 
-            if (!usb.CanStoreResource(new ResourceAmount(resource, 1)))
+            if (!usb.CanStoreForPickup(new ResourceAmount(resource, 1)))
             {
-                terreneStored?.Invoke(new ResourceAmount(ResourceType.Terrene, 1));
                 yield return wait;
                 continue;
             }
 
-            if (pickupList != null && pickupList.Count > 0)
+            if (lootList != null && lootList.Count > 0)
             {
-                ResourcePickup loot = pickupList.Dequeue();
-                if (loot == null || loot.inUse)
+                LootManager.LootData loot = lootList.PullFirst();
+                if (loot == null || loot.isCollected)
                 {
                     yield return null;
                     continue;
                 }
-                loot.inUse = true;
-                float time = (loot.transform.position - collectionPoint.position).magnitude / GetStat(Stat.speed);
+
+                float time = (loot.position - collectionPoint.position).magnitude / GetStat(Stat.speed);
+                lootInstance.transform.position = loot.position;
+                lootInstance.SetActive(true);
+                collected?.Invoke(loot);
                  
-                beamEmitter.SetTarget(loot.transform);
+                beamEmitter.SetTarget(lootInstance.transform);
                 beamEmitter.gameObject.SetActive(true);
 
-                Tween tween = loot.transform.DOMove(collectionPoint.position, time / GameConstants.GameSpeed)
+                Tween tween = lootInstance.transform.DOMove(collectionPoint.position, time / GameConstants.GameSpeed)
                                             .SetEase(Ease.Linear)
                                             .OnComplete(() => LootCollected(loot));
 
                 yield return tween.WaitForCompletion();
-                collected?.Invoke(loot);
             }
 
             yield return wait;
         }
     }
 
+    private void StopCollecting(int dayNumber, float delay)
+    {
+        lootList.Clear();
+    }
+
     //used to get loot when building is placed
     private void CheckForLoot()
     {
-        FindObjectsOfType<ResourcePickup>().ForEach(r => TryCollectLoot(r));  
+        lootList = FindFirstObjectByType<LootManager>().GetNearbyLoot(this.transform.position, GetStat(Stat.maxRange));
     }
-
-    private void TryCollectLoot(ResourcePickup resourcePickup)
+    private void LootDropped(LootManager.LootData data)
     {
-        if(resourcePickup.resourceType == this.resource
-            && HelperFunctions.HexRangeFloat(resourcePickup.transform.position, this.transform.position) <= GetStat(Stat.maxRange))
+        if (HelperFunctions.HexRangeFloat(data.position, this.transform.position) <= GetStat(Stat.maxRange))
         {
-            pickupList.Enqueue(resourcePickup);
-        }
-        else
-        {
-
+            lootList.Add(data);
         }
     }
 
-    private void LootCollected(ResourcePickup loot)
+    private void LootCollected(LootManager.LootData loot)
     {
-        loot.gameObject.SetActive(false);
+        lootInstance.gameObject.SetActive(false);
         beamEmitter.gameObject.SetActive(false);
         StartCoroutine(ProcessLoot(loot));
     }
 
-    private IEnumerator ProcessLoot(ResourcePickup loot)
+    private IEnumerator ProcessLoot(LootManager.LootData loot)
     {
-        for (int i = 0; i < loot.amount; i++)
-        {
-            yield return processTime;
-            usb.StoreResource(new ResourceAmount(resource, 1));
-        }
+        yield return processTime;
+        usb.StoreResource(new ResourceAmount(resource, 1));
+        terreneStored?.Invoke(new ResourceAmount(ResourceType.Terrene, 1));
     }
 
     private void ApplyStatUpgrade(PlayerUnitType type, StatsUpgrade upgrade)
     {
         if(upgrade.upgradeToApply.ContainsKey(Stat.maxRange))
             CheckForLoot();
+    }
+    private void UpdateLoot(LootManager.LootData data)
+    {
+        if (lootList.Contains(data))
+            lootList.Remove(data);
     }
 }

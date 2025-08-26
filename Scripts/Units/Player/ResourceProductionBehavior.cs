@@ -1,4 +1,6 @@
+using HexGame.Grid;
 using HexGame.Units;
+using Sirenix.OdinInspector;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -19,36 +21,75 @@ namespace HexGame.Resources
         [SerializeField]
         protected List<ResourceProduction> receipes = new List<ResourceProduction>();
         protected Coroutine productionCorountine;
-        protected UnitStorageBehavior storageBehavior;
-        public static event System.Action<ResourceProductionBehavior> productionAdded;
-        public static event System.Action<ResourceProductionBehavior> productionRemoved;
-        public static event System.Action<ResourceProductionBehavior, ResourceAmount> resourceProduced;
-        public static event System.Action<ResourceProductionBehavior, ResourceAmount> resourceUsed;
+        protected UnitStorageBehavior usb;
+        public static event Action<ResourceProductionBehavior> productionAdded;
+        public static event Action<ResourceProductionBehavior> productionRemoved;
+        public static event Action<ResourceProductionBehavior, ResourceAmount> resourceProduced;
+        public static event Action<ResourceProductionBehavior, ResourceAmount> resourceConsumed;
         private StatusIndicator statusIndicator;
         private float timeToProduce;
         private float startTime;
         [SerializeField] private List<ResourceTile> resourceTiles = new List<ResourceTile>();
+        [SerializeField] private List<HexTile> requiredTiles = new List<HexTile>();
+        [SerializeField] private List<HexTileType> requiredTileTypes;
         private static ResourceProductionManager resourceProductionManager;
+        [SerializeField] private bool moreTileMoreProduction = false;
+        [SerializeField, ShowIf("moreTileMoreProduction")] private List<float> productionCurve = new List<float>(6);
         public bool isProducing = false;
+        private float upTime;
+        private List<ResourceType> missingResources = new();
+
+        private Queue<int> upTimeLongQueue = new Queue<int>();
+        private Queue<int> upTimeShortQueue = new Queue<int>();
+        private int longUpTimeAcculumation = 0;
+        private int shortUpTimeAcculumation = 0;
+        private int longQueueSamples = 30;
+        private int shortQueueSamples = 10;
+
+        private Hex3 location;
+        private Vector3 position;
+        public Vector3 Position => position;
+        private Camera _camera;
+        private Camera Camera => _camera == null ? _camera = Camera.main : _camera;
+
 
         private void Awake()
         {
             if (resourceProductionManager == null)
                 resourceProductionManager = FindObjectOfType<ResourceProductionManager>();
+
+            //DuplicateUseNearSOs();
+        }
+
+        private void DuplicateUseNearSOs()
+        {
+            for (int i = 0; i < receipes.Count; i++)
+            {
+                for (int j = 0; j < receipes[i].useConditions.Count; j++)
+                {
+                    if (receipes[i].useConditions[j] is UseNearTile useNearTile)
+                    {
+                        receipes[i].useConditions[j] = Instantiate(receipes[i].useConditions[j]);
+                        receipes[i].useConditions[j].name = receipes[i].useConditions[j].name + " Copy";
+                    }
+                }
+            }
         }
 
         public override void StartBehavior()
         {
             isFunctional = true;
+            position = this.transform.position;
+            location = position.ToHex3();
 
             if (!Application.isPlaying)
                 return;
 
-            if (storageBehavior == null)
-                storageBehavior = this.GetComponent<UnitStorageBehavior>();
+            if (usb == null)
+                usb = this.GetComponent<UnitStorageBehavior>();
 
-            storageBehavior.resourceDelivered += CheckResources;
-            storageBehavior.RequestWorkers();
+            usb.resourceDelivered += CheckResources;
+            //usb.RequestWorkers();
 
             //if (productionCorountine == null)
             //    productionCorountine = StartCoroutine(DoProduction(storageBehavior.StoreResource));
@@ -61,6 +102,9 @@ namespace HexGame.Resources
             UpdateEfficiency();
             PlayerUnit.unitCreated += UpdateEfficiency;
             PlayerUnit.unitRemoved += UpdateEfficiency;
+
+            if (moreTileMoreProduction)
+                HexTile.NewHexTile += UpdateRequiredTiles;
 
             int recipeIndex = GetFirstFunctionableRecipe();
             SetReceipe(recipeIndex);
@@ -76,11 +120,14 @@ namespace HexGame.Resources
         private void UpdateEfficiency()
         {
             if (production != null)
-                efficiencyTime = production.ProductivityBoost(this.gameObject);
+                efficiencyTime = production.ProductivityBoost(this, location);
         }
 
         public override void StopBehavior()
         {
+            if (GameStateManager.LeavingScene)
+                return;
+
             isFunctional = false;
             if (!Application.isPlaying)
                 return;
@@ -88,16 +135,27 @@ namespace HexGame.Resources
             productionRemoved?.Invoke(this);
             PlayerUnit.unitCreated -= UpdateEfficiency;
             PlayerUnit.unitRemoved -= UpdateEfficiency;
+
+            if (moreTileMoreProduction)
+                HexTile.NewHexTile -= UpdateRequiredTiles;
+
             WorkerManager.RemoveHappyBuilding(this);
-            SetWarningStatus();
+            if(warningIconInstance != null)
+                warningIconInstance.gameObject.SetActive(false);
         }
 
 
 
         protected void OnDisable()
         {
+            PlayerUnit.unitCreated -= UpdateEfficiency;
+            PlayerUnit.unitRemoved -= UpdateEfficiency; 
+            usb.resourceDelivered -= CheckResources;
+
+            if (GameStateManager.LeavingScene)
+                return;
+
             StopBehavior();
-            storageBehavior.resourceDelivered -= CheckResources;
         }
 
         private void Update()
@@ -106,16 +164,6 @@ namespace HexGame.Resources
             {
                 statusIndicator?.SetStatus(StatusIndicator.Status.red);
                 return;
-            }
-
-            if (isProducing)
-                return;
-
-                //check needed resources
-            foreach (var resource in production.GetCost())
-            {
-                storageBehavior.CheckResourceLevels(resource);
-                storageBehavior.RequestWorkers();
             }
         }
 
@@ -148,7 +196,7 @@ namespace HexGame.Resources
                 //yes, we can do wait time to produce
                 statusIndicator?.SetStatus(StatusIndicator.Status.green);
 
-                timeToProduce = production.GetTimeToProduce() * production.ProductivityBoost(this.gameObject) / (storageBehavior.efficiency);// * efficiencyTime);
+                timeToProduce = production.GetTimeToProduce() * production.ProductivityBoost(this, location) / (usb.efficiency);// * efficiencyTime);
                 timeToProduce /= GameConstants.GameSpeed;
                 if (GetStat(Stat.workers) > 0)
                     timeToProduce /= WorkerManager.globalWorkerEfficiency;
@@ -203,17 +251,17 @@ namespace HexGame.Resources
         public void CreateProducts()
         {
             //do the resources exist to make our produces?
-            if (storageBehavior.TryUseAllResources(production.GetCost().ToList()))
+            if (usb.TryUseAllResources(production.GetCost().ToList()))
             {
                 foreach (var resource in production.GetProduction())
                 {
-                    storageBehavior.StoreResource(new ResourceAmount(resource.type, resource.amount));
+                    usb.StoreResource(new ResourceAmount(resource.type, resource.amount));
                     resourceProduced?.Invoke(this, new ResourceAmount(resource.type, resource.amount));
                 }
                 
                 foreach (var resource in production.GetCost())
                 {
-                    resourceUsed?.Invoke(this, new ResourceAmount(resource.type, resource.amount));
+                    resourceConsumed?.Invoke(this, new ResourceAmount(resource.type, resource.amount));
                 }
             }
 
@@ -227,14 +275,31 @@ namespace HexGame.Resources
 
         private void SetWarningStatus()
         {
-            if (!hasWarningIcon)
+            if (!IsPositionVisible(Camera))
+                return;
+
+            if (warningIconInstance == null)
             {
                 warningIconInstance = UnitManager.warningIcons.PullGameObject(this.transform.position, Quaternion.identity).GetComponent<WarningIcons>();
                 warningIconInstance.transform.SetParent(this.transform);
             }
 
             warningIconInstance.SetWarnings(issueList);
+            //warningIconInstance.SetResourceWarnings(missingResources);
             statusIndicator?.SetStatus(StatusIndicator.Status.yellow);
+        }
+
+        private bool IsPositionVisible(Camera cam)
+        {
+            Vector3 viewportPoint = cam.WorldToViewportPoint(this.position);
+
+            // Check if the point is in front of the camera
+            if (viewportPoint.z < 0)
+                return false;
+
+            // Check if the point is within the camera's viewport rectangle (0 to 1 in x and y)
+            return viewportPoint.x >= 0 && viewportPoint.x <= 1 &&
+                   viewportPoint.y >= 0 && viewportPoint.y <= 1;
         }
 
         private void RemoveResourceFromTile()
@@ -251,11 +316,15 @@ namespace HexGame.Resources
 
         public bool CanIProduce()
         {
+            //If we aren't visible then no need to update the issue list
+            if (!IsPositionVisible(Camera))
+                return CanIProduceFast();
+
             issueList.Clear();
-            if (!production.CanProduce(this.gameObject))
+            if (!production.CanProduce(this, location))
                 issueList.Add(ProductionIssue.blocked);
 
-            float efficiency = storageBehavior.efficiency;
+            float efficiency = usb.efficiency;
             if (efficiency <= 0.01f)
                 issueList.Add(ProductionIssue.noWorkers);
             else if(efficiency < 1f)
@@ -264,7 +333,7 @@ namespace HexGame.Resources
             if (!CanStoreProducts())
                 issueList.Add(ProductionIssue.fullStorage);
 
-            if (!storageBehavior.HasAllResources(production.GetCost().ToList()))
+            if (CheckMissingResource())
                 issueList.Add(ProductionIssue.missingResources);
 
             if (issueList.Count == 1 && issueList[0] == ProductionIssue.missingWorkers)
@@ -285,30 +354,75 @@ namespace HexGame.Resources
             return issueList.Count == 0;
         }
 
+        private bool CheckMissingResource()
+        {
+            if (warningIconInstance == null)
+            {
+                warningIconInstance = UnitManager.warningIcons.PullGameObject(this.transform.position, Quaternion.identity).GetComponent<WarningIcons>();
+                warningIconInstance.transform.SetParent(this.transform);
+            }
+
+            this.missingResources.Clear();
+
+            var productionCost = this.production.GetCost();
+            for (int i = 0; i < productionCost.Count; i++)
+            {
+                if (usb.GetAmountStored(productionCost[i].type) < productionCost[i].amount)
+                {
+                    missingResources.Add(productionCost[i].type);
+                }
+            }
+
+            warningIconInstance.SetResourceWarnings(missingResources);
+
+            return this.missingResources.Count > 0;
+        }
+
+        /// <summary>
+        /// Does not create a list of issues. Should reduce GC.
+        /// </summary>
+        /// <returns></returns>
+        public bool CanIProduceFast()
+        {
+            if (!production.CanProduce(this, location))
+                return false;
+
+            float efficiency = usb.efficiency;
+            if (efficiency <= 0.01f)
+                return false;
+
+            if (!CanStoreProducts())
+                return false;
+
+            if (!usb.HasAllResources(production.GetCost()))
+                return false;
+
+            //keep this at the end - because of return
+            if(resourceTiles.Count > 0)
+            {
+                foreach (var tile in resourceTiles)
+                {
+                    //if one tile has resources, we are good
+                    if (tile.ResourceAmount > production.GetProduction()[0].amount)
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
         private bool CanStoreProducts()
         {
             foreach (var resource in production.GetProduction())
             {
-                if (!storageBehavior.CanStoreResource(resource))
+                //checking if resources produced can be picked up after storage... naming is a bit confusing
+                if (!usb.CanStoreForPickup(resource))
                 {
                     return false;
                 }
             }
 
             return true;
-        }
-
-        public List<ResourceAmount> GetResourcesUsed()
-        {
-            if (production == null)
-                return new List<ResourceAmount>();
-
-            return production.GetCost();
-        }
-
-        public List<ResourceAmount> GetResourcesProduced()
-        {
-            return production.GetProduction();
         }
 
         public List<ResourceProduction> GetReceipes()
@@ -332,7 +446,7 @@ namespace HexGame.Resources
                 if (receipes[i].IsUnlocked && receipes[i] != production)
                 {
                     unlockedIndex++;
-                    break;
+                    continue;
                 }
                 else if (receipes[i].IsUnlocked && receipes[i] == production)
                 {
@@ -343,16 +457,58 @@ namespace HexGame.Resources
             return unlockedIndex;
         }
 
+        public int GetRecipeIndex()
+        {
+            return receipes.IndexOf(production);
+        }
+
         public float GetEfficiency()
         {
             return Mathf.Max(0, (1f / efficiencyTime)) * 100;
+        }
+
+        public float GetUpTime()
+        {
+            if(upTimeLongQueue.Count == 0)
+                return 0f;
+
+            float longUpTime = (float)longUpTimeAcculumation / (float)upTimeLongQueue.Count;
+            float shortUpTime = (float)shortUpTimeAcculumation / (float)upTimeShortQueue.Count;
+
+            return Mathf.Max(shortUpTime, longUpTime);
+        }
+
+        public void UpdateUpTime()
+        {
+            if(isProducing)
+            {
+                upTimeLongQueue.Enqueue(1);
+                longUpTimeAcculumation += 1;
+                upTimeShortQueue.Enqueue(1);
+                shortUpTimeAcculumation += 1;
+            }
+            else
+            {
+                upTimeLongQueue.Enqueue(0); 
+                upTimeShortQueue.Enqueue(0);
+            }
+
+            if (upTimeLongQueue.Count > longQueueSamples)
+            {
+                longUpTimeAcculumation -= upTimeLongQueue.Dequeue();
+            }
+
+            if(upTimeShortQueue.Count > shortQueueSamples)
+            {
+                shortUpTimeAcculumation -= upTimeShortQueue.Dequeue();
+            }
         }
 
         private int GetFirstFunctionableRecipe()
         {
             foreach (var receipe in receipes)
             {
-                if (receipe.IsUnlocked && receipe.CanProduce(this.gameObject))
+                if (receipe.IsUnlocked && receipe.CanProduce(this, location))
                     return receipes.IndexOf(receipe);
             }
 
@@ -383,35 +539,95 @@ namespace HexGame.Resources
                     }
                 }
 
-
-                storageBehavior.AdjustStorageForRecipe(production, receipes[receipeIndex]);
+                usb.AdjustStorageForRecipe(production, receipes[receipeIndex]);
                 production = receipes[receipeIndex];
 
                 resourceTiles.Clear();
+                requiredTiles.Clear();
+                requiredTileTypes.Clear();
                 foreach (var useCondition in production.useConditions)
                 {
                     if (useCondition is UseNearTile useNearTile)
                         GetResourceTiles(useNearTile);
+
+                    if (useCondition is UseOnTile useOnTile)
+                        GetResourceTile(useOnTile);
                 }
 
                 recipeChanged?.Invoke(production);
             }
         }
 
-        public void GetResourceTiles(UseNearTile useCondition)
+        public void SetRecipeIndex(int index)
         {
-            foreach (var tile in FindObjectsOfType<ResourceTile>())
+            if(index >= receipes.Count)
             {
-                if (tile.TileType != useCondition.RequiredTileType)
+                index = GetFirstFunctionableRecipe();
+            }
+
+            usb.AdjustStorageForRecipe(production, receipes[index]);
+            production = receipes[index];
+
+            resourceTiles.Clear();
+            requiredTiles.Clear();
+            requiredTileTypes.Clear();
+            foreach (var useCondition in production.useConditions)
+            {
+                if (useCondition is UseNearTile useNearTile)
+                {
+                    GetResourceTiles(useNearTile);
+                    requiredTileTypes.AddRange(useNearTile.RequiredTiles);
+                }
+
+                if(useCondition is UseOnTile useOnTile)
+                {
+                    GetResourceTile(useOnTile);
+                }
+            }
+
+            recipeChanged?.Invoke(production);
+        }
+
+        public void GetResourceTiles(UseNearTile useNearTile)
+        {
+            List<Hex3> neighbors = HexTileManager.GetHex3WithInRange(location, 0, useNearTile.Range);
+            List<HexTile> tiles = HexTileManager.GetTilesAtLocations(neighbors);
+
+            foreach (var tile in tiles)
+            {
+                if (!useNearTile.RequiredTiles.Contains(tile.TileType))
+                    continue;
+                else
+                    requiredTiles.Add(tile);    
+
+                if (!tile.TryGetComponent(out ResourceTile resourceTile))
                     continue;
 
-                if(tile.ResourceAmount <= 0)
+                if (resourceTile.ResourceAmount <= 0)
                     continue;
 
-                if (HelperFunctions.HexRangeFloat(tile.transform.position, this.transform.position) > useCondition.Range)
+                if (HelperFunctions.HexRangeFloat(tile.transform.position, this.transform.position) > useNearTile.Range)
                     continue;
-                
-                resourceTiles.Add(tile);
+
+                resourceTiles.Add(resourceTile);
+            }
+        }
+        
+        public void GetResourceTile(UseOnTile useOnTile)
+        {
+
+            HexTile tile = HexTileManager.GetHexTileAtLocation(location);
+            if(useOnTile.CanUse(this, location) && tile.TryGetComponent(out ResourceTile resourceTile))
+            {
+                resourceTiles.Add(resourceTile);
+            }
+        }
+
+        private void UpdateRequiredTiles(HexTile tile)
+        {
+            if(requiredTileTypes.Contains(tile.TileType))
+            {
+                requiredTiles.Add(tile);
             }
         }
 
@@ -419,21 +635,26 @@ namespace HexGame.Resources
         {
             return new List<PopUpInfo>()
             {
-                new PopUpInfo($"\nEfficiency: {Mathf.RoundToInt(1f/production.ProductivityBoost(this.gameObject) * 100f)}%", 1000, PopUpInfo.PopUpInfoType.stats)
+                new PopUpInfo($"\nEfficiency: {Mathf.RoundToInt(1f/production.ProductivityBoost(this, location) * 100f)}%", 1000, PopUpInfo.PopUpInfoType.stats)
             };
         }
 
         public float GetTimeToProduce()
         {
-            if(storageBehavior == null || storageBehavior.efficiency <= 0.01f)
+            if(usb == null || usb.efficiency <= 0.01f)
                 return 0f;
 
-            float time = production.GetTimeToProduce() * production.ProductivityBoost(this.gameObject) / (storageBehavior.efficiency);
+            float time = production.GetTimeToProduce() * production.ProductivityBoost(this, location) / (usb.efficiency);
 
             if (GetStat(Stat.workers) > 0)
                 time /= WorkerManager.globalWorkerEfficiency;
 
             time /= GameConstants.GameSpeed;
+
+            if(moreTileMoreProduction)
+            {
+                time /= productionCurve[requiredTiles.Count];
+            }
 
             return time;
         }
@@ -456,6 +677,34 @@ namespace HexGame.Resources
             return " - Near Housing";
         }
 
+
+
+        public List<bool> GetRecipeStatus()
+        {
+            List<bool> recipeStatus = new List<bool>();
+            foreach (var recipe in receipes)
+            {
+                if (recipe == null)
+                {
+                    Debug.Log($"Missing recipe from {this.gameObject.name}", this.gameObject);
+                    continue;
+                }
+                recipeStatus.Add(recipe.IsUnlocked);
+            }
+            return recipeStatus;
+        }
+
+        public void SetRecipeStatus(List<bool> recipeStatus)
+        {
+            for (int i = 0; i < receipes.Count; i++)
+            {
+                if (receipes[i] == null)
+                    continue;
+
+                if(i < recipeStatus.Count && recipeStatus[i])
+                    receipes[i].Unlock();
+            }
+        }
         public enum ProductionIssue
         {
             notPowered,
@@ -465,5 +714,25 @@ namespace HexGame.Resources
             noWorkers,
             missingWorkers,
         }
+
+        private Dictionary<int,List<Hex3>> neighborLocationCache = new();
+        public List<Hex3> GetNeighborsInRange(int range)
+        {
+            if (neighborLocationCache.TryGetValue(range, out List<Hex3> neighbors))
+                return neighbors;
+            else if (range == 0)
+            {
+                neighborLocationCache.Add(range, new List<Hex3>() { location });
+                return GetNeighborsInRange(0);
+            }
+            else
+            {
+                neighbors = new List<Hex3>();
+                Hex3.GetNeighborsAtDistance(location, range, ref neighbors);
+                neighborLocationCache.Add(range, neighbors);
+                return GetNeighborsInRange(range);
+            }
+        }
+
     }
 }

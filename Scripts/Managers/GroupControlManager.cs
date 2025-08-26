@@ -1,11 +1,15 @@
+using HexGame.Grid;
+using HexGame.Units;
 using Nova;
 using NovaSamples.UIControls;
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-public class GroupControlManager : MonoBehaviour
+public class GroupControlManager : MonoBehaviour, ISaveData
 {
     private UIControlActions inputAction;
     private GroupInfo[] groups = new GroupInfo[5];
@@ -16,9 +20,12 @@ public class GroupControlManager : MonoBehaviour
 
     [SerializeField] private Button[] buttons = new Button[5];
     private int currentGroup = 0;
+    private UnitSelectionManager usm;
+
 
     private void Awake()
     {
+        usm = FindFirstObjectByType<UnitSelectionManager>();
         inputAction = new UIControlActions();
         cameraMovement = FindFirstObjectByType<CameraMovement>();
         cameraTransform = cameraMovement.transform;
@@ -27,6 +34,8 @@ public class GroupControlManager : MonoBehaviour
         {
             buttons[i].GetComponent<ClipMask>().Tint = ColorManager.GetColor(ColorCode.buttonGreyOut);
         }
+
+        RegisterDataSaving();
     }
 
     private void OnEnable()
@@ -107,7 +116,7 @@ public class GroupControlManager : MonoBehaviour
     private void GroupPressed(int groupNumber)
     {
         //a bit janky, but prevents group selection if the feedback window is open
-        if (WindowPopup.blockWindowHotkeys)
+        if (WindowPopup.BlockWindowHotkeys)
             return;
 
         currentGroup = groupNumber;
@@ -134,13 +143,24 @@ public class GroupControlManager : MonoBehaviour
 
     private void ZoomToGroup(int groupNumber)
     {
-        if (groups[groupNumber] == null)
+        GroupInfo group = groups[groupNumber];
+
+        if (group == null)
             return; 
 
-        Vector3? location = groups[groupNumber].Location;
+        if(group.unit != null)
+        {
+            if (UnitSelectionManager.selectedUnit == null  || UnitSelectionManager.selectedUnit.gameObject != group.unit.gameObject)
+            {
+                usm.SetUnitSelected(group.unit.gameObject);
+                return;
+            }
+        }
+
+        Vector3? location = group.Location;
         if(location != null)
-            MoveToGroup?.Invoke((Vector3)groups[groupNumber].Location);
-        MoveToUnit?.Invoke(groups[groupNumber].unit);
+            MoveToGroup?.Invoke((Vector3)group.Location);
+        MoveToUnit?.Invoke(group.unit);
     }
 
     private void SetGroupInfo(int groupNumber)
@@ -148,19 +168,19 @@ public class GroupControlManager : MonoBehaviour
         if(UnitSelectionManager.selectedUnit != null)
         {
             groups[groupNumber] = new GroupInfo(UnitSelectionManager.selectedUnit.transform);
-            MessagePanel.ShowMessage($"Group {groupNumber + 1} set to {UnitSelectionManager.selectedUnit.unitType.ToNiceString()}", null); 
+            MessagePanel.ShowMessage($"Location {groupNumber + 1} set to {UnitSelectionManager.selectedUnit.unitType.ToNiceString()}", null); 
         }
         else
         {
             groups[groupNumber] = new GroupInfo(cameraTransform.position);
-            MessagePanel.ShowMessage($"Group {groupNumber + 1} postion set to {cameraTransform.position.ToHex3().StringCoordinates()}", null);
+            MessagePanel.ShowMessage($"Location {groupNumber + 1} postion set to {cameraTransform.position.ToHex3().StringCoordinates()}", null);
         }
     }
 
     private void NextGroup(InputAction.CallbackContext context)
     {
         //a bit janky, but prevents group selection if the feedback window is open
-        if (WindowPopup.blockWindowHotkeys)
+        if (WindowPopup.BlockWindowHotkeys)
             return;
 
         NextGroup(currentGroup);
@@ -185,10 +205,73 @@ public class GroupControlManager : MonoBehaviour
 
         //update and zoom
         this.currentGroup = currentGroup;
-        ZoomToGroup(currentGroup);
+
+        Vector3? location = groups[currentGroup].Location;
+        if (location != null)
+            MoveToGroup?.Invoke((Vector3)groups[currentGroup].Location);
+        MoveToUnit?.Invoke(groups[currentGroup].unit);
     }
 
-    private class GroupInfo
+    private const string GROUP_DATA = "GroupControlManager";
+    public void RegisterDataSaving()
+    {
+        //load after units have loaded
+        SaveLoadManager.RegisterData(this, 5);
+    }
+
+    public void Save(string savePath, ES3Writer writer)
+    {
+        List<GroupData> locations = new List<GroupData>();
+        for (int i = 0; i < groups.Length; i++)
+        {
+            if (groups[i] == null)
+                continue;
+
+            locations.Add(new GroupData
+            {
+                Location = (Vector3)groups[i].Location,
+                GroupNumber = i
+            });
+        }
+        
+        writer.Write<List<GroupData>>(GROUP_DATA, locations);
+    }
+
+    public IEnumerator Load(string loadPath, Action<string> postUpdateMessage)
+    {
+        if(ES3.KeyExists(GROUP_DATA, loadPath))
+        {
+            UnitManager unitManager = FindFirstObjectByType<UnitManager>();
+            List<GroupData> locations = ES3.Load<List<GroupData>>(GROUP_DATA, loadPath);
+            for (int i = 0; i < groups.Length; i++)
+            {
+                buttons[i].GetComponent<ClipMask>().Tint = ColorManager.GetColor(ColorCode.buttonGreyOut);
+            }
+
+            yield return null;
+
+            for (int j = 0; j < locations.Count; j++)
+            { 
+                buttons[locations[j].GroupNumber].GetComponent<ClipMask>().Tint = Color.white;
+
+                Hex3 location = locations[j].Location.ToHex3();
+
+                if(UnitManager.TryGetPlayerUnitAtLocation(location, out PlayerUnit unit))
+                    groups[locations[j].GroupNumber] = new GroupInfo(unit.transform);
+                else
+                    groups[locations[j].GroupNumber] = new GroupInfo(locations[j].Location);
+            }
+        }
+        yield return null;
+    }
+
+    public struct GroupData
+    {
+        public Vector3 Location;
+        public int GroupNumber;
+    }
+
+    public class GroupInfo
     {
         public Vector3? Location
         {

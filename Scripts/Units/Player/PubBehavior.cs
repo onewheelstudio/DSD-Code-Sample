@@ -9,9 +9,6 @@ using static HexGame.Resources.ResourceProductionBehavior;
 public class PubBehavior : UnitBehavior, IHaveHappiness
 {
     private UnitStorageBehavior usb;
-
-    private int requiredNumberOfWorkers => (int)this.GetStat(Stat.workers);
-    private int numberOfWorkers;
     [SerializeField] private float foodConsumptionDelay = 15f;
     private WaitForSeconds delay;
     public static event Action HappinessChanged;
@@ -78,7 +75,7 @@ public class PubBehavior : UnitBehavior, IHaveHappiness
             return;
         }
 
-        if (!hasWarningIcon)
+        if (warningIconInstance == null)
         {
             warningIconInstance = UnitManager.warningIcons.PullGameObject(this.transform.position, Quaternion.identity).GetComponent<WarningIcons>();
             warningIconInstance.transform.SetParent(this.transform);

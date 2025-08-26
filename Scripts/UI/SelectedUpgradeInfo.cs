@@ -1,9 +1,11 @@
+using DG.Tweening;
 using HexGame.Resources;
 using Nova;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using NovaSamples.UIControls;
 
 public class SelectedUpgradeInfo : MonoBehaviour
 {
@@ -32,6 +34,7 @@ public class SelectedUpgradeInfo : MonoBehaviour
     private HexTechTree techTree;
     private UpgradeTile selectedTile;
     private ClipMask clipMask;
+    private Tween clipMaskTween;
 
     [Header("Info SOs")]
     [SerializeField] private UnitImages unitImages;
@@ -72,6 +75,8 @@ public class SelectedUpgradeInfo : MonoBehaviour
         upgradeList.RemoveDataBinder<ResourceAmount, UnitInfoButtonVisuals>(SetResources);
         productList.RemoveDataBinder<ResourceAmount, UnitInfoButtonVisuals>(SetIcons);
         costList.RemoveDataBinder<ResourceAmount, UnitInfoButtonVisuals>(SetIcons);
+
+        clipMaskTween.Kill();
     }
 
     public void UpdateInfo(Upgrade upgrade, UpgradeTile tile)
@@ -80,7 +85,7 @@ public class SelectedUpgradeInfo : MonoBehaviour
             return;
 
         selectedTile = tile;
-        clipMask.DoFade(1f, 0.1f);
+        clipMaskTween = clipMask.DoFade(1f, 0.1f);
         if(moveToMouse)
             StartCoroutine(OneFrameDelayPositioning());
 
@@ -137,6 +142,14 @@ public class SelectedUpgradeInfo : MonoBehaviour
             productList.SetDataSource(recipeUpgrade.recipe.GetProduction());
             costList.SetDataSource(recipeUpgrade.recipe.GetCost());
         }
+        else if(upgrade is UnlockAutoTrader triggerUpgrade)
+        {
+            buildingImage.SetImage(triggerUpgrade.Icon);
+        }
+        else if(upgrade is IncreaseLimitUpgrade increaseLimitUpgrade)
+        {
+            buildingImage.SetImage(unitImages.GetPlayerUnitImage(increaseLimitUpgrade.UnitType));
+        }
 
         if (tile.IsDemoBlocked() || tile.IsEarlyAccessBlocked())
             requirementParent.SetActive(false);
@@ -158,7 +171,7 @@ public class SelectedUpgradeInfo : MonoBehaviour
 
     public void Clear(Upgrade upgrade, UpgradeTile tile)
     {
-        clipMask.DoFade(0f, 0.1f);
+        clipMaskTween = clipMask.DoFade(0f, 0.1f);
     }
 
     private IEnumerator OneFrameDelayPositioning()

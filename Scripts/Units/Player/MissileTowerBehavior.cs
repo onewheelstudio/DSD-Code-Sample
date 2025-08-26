@@ -1,9 +1,6 @@
-using System.Collections;
+using HexGame.Resources;
 using System.Collections.Generic;
 using UnityEngine;
-using HexGame.Resources;
-using Sirenix.OdinInspector;
-using System;
 
 namespace HexGame.Units
 {
@@ -16,9 +13,10 @@ namespace HexGame.Units
 
         private List<Unit> enemyList = new List<Unit>();
 
-        [SerializeField]
-        protected List<ResourceType> resourcesNeeded = new List<ResourceType>();
-
+        private void Awake()
+        {
+            storageBehavior.AddDeliverType(ResourceType.Energy);
+        }
 
         protected void OnEnable()
         {
@@ -27,16 +25,20 @@ namespace HexGame.Units
             storageBehavior = GetComponent<UnitStorageBehavior>();
 
             DayNightManager.toggleDay += RequestResources;
+
+            foreach (var t in turretList)
+            {
+                t.MissileCreated += storageBehavior.CheckResourceLevels;
+            }
         }
 
         private void OnDisable()
         {
             DayNightManager.toggleDay -= RequestResources;
-        }
-
-        private void RequestResources(int obj)
-        {
-            storageBehavior.CheckResourceLevels();
+            foreach (var t in turretList)
+            {
+                t.MissileCreated -= storageBehavior.CheckResourceLevels;
+            }
         }
 
         private void Update()
@@ -109,6 +111,11 @@ namespace HexGame.Units
         public override void StopBehavior()
         {
             isFunctional = false;
+        }
+
+        private void RequestResources(int obj)
+        {
+            storageBehavior.CheckResourceLevels();
         }
     }
 

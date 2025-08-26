@@ -15,6 +15,7 @@ public class SupplyShipLoadDirective : DirectiveBase
 
     public override void Initialize()
     {
+        base.Initialize();
         SupplyShipBehavior.supplyShipLaunched += SupplyShipLaunched;
         if (OnStartCommunication != null)
             CommunicationMenu.AddCommunication(OnStartCommunication);

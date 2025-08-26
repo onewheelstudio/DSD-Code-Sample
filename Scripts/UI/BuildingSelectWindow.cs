@@ -45,7 +45,7 @@ public class BuildingSelectWindow : WindowPopup
         if(!interactable.enabled)
             return;
 
-        if (blockWindowHotkeys)
+        if (BlockWindowHotkeys)
             return;
 
         buildingSelectOpened?.Invoke(this);

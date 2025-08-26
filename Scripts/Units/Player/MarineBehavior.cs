@@ -8,7 +8,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
 {
@@ -42,6 +41,10 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
     }
 
     public bool UnitsAreMoving => unitsAreMoving;
+    public MeshRenderer movementTimer;
+    private Material movementMaterial;
+    private Tween movementIconTween;
+    private Tween fadeTween;
 
     private List<Unit> enemyList = new List<Unit>();
 
@@ -52,6 +55,9 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
     private static List<EnemyCrystalBehavior> discoveredCrystals;
     [SerializeField] private CommunicationBase crystalWarning;
     private bool isMoving;
+
+    [Header("Indicator")]
+    [SerializeField] private ClipMask indicatorClipMask;
 
     private void Awake()
     {
@@ -64,9 +70,14 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
 
         if(ecm == null)
         { 
-            ecm = FindObjectOfType<EnemyCrystalManager>();
+            ecm = FindFirstObjectByType<EnemyCrystalManager>();
             discoveredCrystals = new List<EnemyCrystalBehavior>();
         }
+
+        //create instance of material to prevent changing the original material
+        movementMaterial = Instantiate(movementTimer.material);
+        movementTimer.material = movementMaterial;
+        movementTimer.gameObject.SetActive(false);
     }
 
     private void OnEnable()
@@ -81,7 +92,11 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
             marine.reachedDestination += MarineReachedDestination;
         }
 
-        DoFlyDown();
+        //indicatorClipMask.transform.SetParent(null);
+        if(!SaveLoadManager.Loading)
+            DoFlyDown();
+
+        SaveLoadManager.LoadComplete += DisplayIndicator;
     }
 
 
@@ -94,9 +109,15 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
 
         foreach (var marine in marines)
         {
+            if (marine == null)
+                continue;
             marine.reachedDestination -= MarineReachedDestination;
         }
 
+        if(indicatorClipMask != null)
+            indicatorClipMask.gameObject.SetActive(false);
+
+        SaveLoadManager.LoadComplete -= DisplayIndicator;
     }
 
     private void Update()
@@ -142,8 +163,8 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
         int neededWorkers = inactiveMarines.Count;
         if (neededWorkers == 0)
             return;
-        for (int i = 0; i < neededWorkers; i++)
-            usb.MakeDeliveryRequest(new HexGame.Resources.ResourceAmount(HexGame.Resources.ResourceType.Workers, 1));
+        //for (int i = 0; i < neededWorkers; i++)
+        //    usb.MakeDeliveryRequest(new HexGame.Resources.ResourceAmount(HexGame.Resources.ResourceType.Workers, 1));
     }
 
     private void UnitDamaged(Unit unit, float hitPoints)
@@ -178,12 +199,17 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
         isFunctional = false;
     }
 
-
     private void DestinationSet(Vector3 position)
     {
+        Vector3 offset = Vector3.zero;
+        HexTile tile = HexTileManager.GetHexTileAtLocation(position.ToHex3());
+
+        if (tile != null && tile.TileType == HexTileType.hill)
+            offset = new Vector3(0f, UnitManager.HillOffset, 0f);
+
         foreach (var marine in marines)
         {
-            marine.SetDestination(position);
+            marine.SetDestination(position + offset);
         }
     }
 
@@ -236,6 +262,7 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
 
     private void DoFlyDown()
     {
+        DisplayIndicator(this.transform.position.ToHex3());
         float startHeight = FindAnyObjectByType<CameraMovement>().GetComponentInChildren<Camera>().transform.position.y;
         foreach (var marine in marines)
         {
@@ -250,7 +277,7 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
         if (unitsAreMoving)
             return;
 
-        if (readyToMove)
+        if (ReadyToMove)
             CancelMove();
         else
             StartMove();
@@ -258,28 +285,26 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
 
     public void StartMove()
     {
-        if (unitsAreMoving || readyToMove)
+        if (unitsAreMoving || ReadyToMove)
             return;
 
         SFXManager.PlaySFX(SFXType.click);
         readyToMove = true;
-        //cursorManager.SetCursor(CursorType.moveUnit);
         foreach (var marine in marines)
         {
             marine.SetJetPack(true);
         }
+
     }
-
-
 
     public void DoMove(Hex3 location)
     {
         if (unitsAreMoving)
         {
-            //if (!waitingToMove)
-            //    StartCoroutine(MoveWhenReady(tempLocation));
             return;
         }
+
+        FadeOutIndicator();
 
         //flat out prevent move near enemy crystals
         if (ecm.IsCrystalNearBy(location, out EnemyCrystalBehavior crystal))
@@ -296,9 +321,7 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
         marineMovedStarted?.Invoke(this);
         maringMovingToLocation?.Invoke(this, location);
         DestinationSet(location);
-        //cursorManager.SetCursor(CursorType.hex);
         sphereCollider.enabled = false;
-        //fogRevealer.ToggleFogReveler(false, () => this.transform.position = location);
         StartCoroutine(DoFogMove(location.ToVector3()));
         this.transform.position = location.ToVector3();
         readyToMove = false;
@@ -319,7 +342,18 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
     {
         sphereCollider.enabled = true;
         //fogRevealer.ToggleFogReveler(true);
+
+        if (UnitSelectionManager.selectedUnit != null && 
+            UnitSelectionManager.selectedUnit.gameObject == this.gameObject)
+            StartMove();
+
+        if (!unitsAreMoving)
+        {
+            StopMovementIcon();
+            DisplayIndicator(this.transform.position);
+        }
     }
+
 
     private IEnumerator DoFogMove(Vector3 position)
     {
@@ -328,37 +362,40 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
             yield break;
         }
 
-        float speed = GetStat(Stat.speed);
-        float moveTime = (this.transform.position - position).magnitude / speed;
-        float verticalTime = Mathf.Abs(1.25f) / speed;
-        float totalTime = moveTime + verticalTime;
-        float timer = 0f;
-        Vector3 move = position - fogRevealer.transform.position;
-
         fogRevealer.transform.SetParent(null);
-        //fogRevealer.StartMove();
-        //yield return new WaitForSeconds(verticalTime * 2);
         Hex3 fogPosition = GetFogRevealerLocation().ToHex3();
         Hex3 targetPosition = position.ToHex3();
+        float travelDistance = (fogPosition - targetPosition).ToVector3().magnitude;
+        StartMovementIcon();
         while (fogPosition != targetPosition)
         {
             fogPosition = GetFogRevealerLocation().ToHex3();
-            //timer += Time.fixedDeltaTime;
-            timer += Time.deltaTime;
-            //fogRevealer.transform.position += move * (Time.fixedDeltaTime / totalTime);
-            //yield return new WaitForFixedUpdate();
             fogRevealer.transform.position = GetFogRevealerLocation();
             fogRevealer.UpdatePosition(fogPosition);
-            Debug.Log("FogRevealer Position: " + fogRevealer.transform.position.ToHex3());
+
+            float distanceRemaining = (targetPosition.ToVector3() - fogRevealer.transform.position).magnitude;
             yield return null;
         }
         fogRevealer.transform.position = position;
         fogRevealer.transform.SetParent(this.transform);
-        //fogRevealer.CompleteMove();
         marineMovedComplete?.Invoke(this);
     }
 
+    private void StartMovementIcon()
+    {
+        movementTimer.gameObject.SetActive(true);
+        fadeTween = movementMaterial.DOFade(0.7f, 0.25f);
+        movementTimer.transform.localScale = Vector3.one * 2.1f;
+        movementIconTween = movementTimer.transform.DOScale(Vector3.one * 1.8f, 0.5f).SetEase(Ease.InOutSine).SetLoops(-1, LoopType.Yoyo).SetUpdate(true);
+    }
 
+    private void StopMovementIcon()
+    {
+        fadeTween.Kill();
+        movementMaterial.DOFade(0f, 0.25f)
+                        .OnComplete(() => { movementIconTween.Kill(); movementTimer.gameObject.SetActive(false); });
+    }
+    
     private Vector3 GetFogRevealerLocation()
     {
         Vector3 position = Vector3.zero;
@@ -374,4 +411,43 @@ public class MarineBehavior : UnitBehavior, IHaveButtons, IMove
         return position;
     }
     #endregion
+
+    private void FadeOutIndicator()
+    {
+        if(indicatorClipMask.Tint.a == 0f)
+            return;
+
+        indicatorClipMask.DoFade(0f, 0.1f);
+    }
+
+    //used when loading to ensure indicator is at the correct location
+    private void DisplayIndicator()
+    {
+        DisplayIndicator(this.transform.position.ToHex3());
+    }
+
+    private void DisplayIndicator(Hex3 location)
+    {
+        if (indicatorClipMask == null)
+            return;
+
+        //indicatorClipMask.transform.position = location.ToVector3() + Vector3.up * 1.25f;
+        HexTile tile = HexTileManager.GetHexTileAtLocation(location);
+        if (tile == null)
+            return;
+
+        if (tile.TileType == HexTileType.forest || tile.TileType == HexTileType.aspen
+            || tile.TileType == HexTileType.funkyTree || tile.TileType == HexTileType.palmTree)
+        {
+            if (indicatorClipMask.Tint.a > 0.95f)
+                return;
+
+            indicatorClipMask.SetAlpha(0f);
+            indicatorClipMask.DoFade(1f, 0.1f);
+        }
+        else
+        {
+            indicatorClipMask.DoFade(0f, 0.1f);
+        }
+    }
 }

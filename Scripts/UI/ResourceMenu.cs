@@ -2,11 +2,13 @@ using HexGame.Resources;
 using Nova;
 using NovaSamples.UIControls;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using static ResourceHeader;
 
-public class ResourceMenu : WindowPopup
+public class ResourceMenu : WindowPopup, ISaveData
 {
     [SerializeField]
     private GameObject resourceUIPrefab;
@@ -21,6 +23,8 @@ public class ResourceMenu : WindowPopup
         resourceHeader = FindObjectOfType<ResourceHeader>();
         foreach (var resource in PlayerResources.GetResourceList())
             CreateResourceUI(resource);
+
+        RegisterDataSaving();
     }
 
     private void Start()
@@ -71,5 +75,30 @@ public class ResourceMenu : WindowPopup
             return;
 
         resourceUI.starToggle.ToggledOn = isStarred;
+    }
+
+    private const string RESOURCE_DISPLAY = "resourceDisplay";
+    public void RegisterDataSaving()
+    {
+        SaveLoadManager.RegisterData(this);
+    }
+
+    public void Save(string savePath, ES3Writer writer)
+    {
+        //nothing to save here
+    }
+
+    public IEnumerator Load(string loadPath, Action<string> postUpdateMessage)
+    {
+        if (ES3.KeyExists(RESOURCE_DISPLAY, loadPath))
+        {
+            List<ResourceType> resourcesDisplayed = ES3.Load<List<ResourceType>>(RESOURCE_DISPLAY, loadPath);
+            foreach (var resource in resourcesDisplayed)
+            {
+                ResourceToggled(resource, true);
+            }
+        }
+        yield return null;
+
     }
 }

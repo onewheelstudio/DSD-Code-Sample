@@ -1,21 +1,32 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class ToggleForDemo : MonoBehaviour
 {
     [SerializeField] private bool showInDemo = true;
 
-    private void OnEnable()
-    {
-        GameSettings.demoToggled += Toggle;
-    }
+    [SerializeField] private bool toggleGameObject = true;
+    [SerializeField] private List<MonoBehaviour> componentsToToggle = new List<MonoBehaviour>();
+    [SerializeField] private GameSettings gameSettings;
 
-    private void OnDisable()
+    private void Awake()
     {
-        GameSettings.demoToggled -= Toggle;
+        if (gameSettings == null)
+        {
+            Debug.Log("Missing GameSettings", this.gameObject);
+            return;
+        }
+        Toggle(gameSettings.IsDemo);
     }
 
     private void Toggle(bool obj)
     {
-        this.gameObject.SetActive(obj == showInDemo);
+        if(toggleGameObject)
+            this.gameObject.SetActive(obj == showInDemo);
+
+        foreach (var component in componentsToToggle)
+        {
+            component.enabled = obj == showInDemo;
+        }
     }
 }

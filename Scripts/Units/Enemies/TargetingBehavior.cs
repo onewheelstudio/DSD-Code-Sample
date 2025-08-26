@@ -1,6 +1,6 @@
+using HexGame.Grid;
+using HexGame.Resources;
 using Pathfinding;
-using System;
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -12,13 +12,13 @@ namespace HexGame.Units
         [SerializeField]
         public Unit target { get; private set; }
         protected SetDestination setDestination;
+        public bool HasPath => setDestination.HasPath;
         private Seeker seeker;
         private UnitState currentState;
         private UnitBehavior[] behaviors;
-        private bool noPath = false;
-        private Coroutine selfDestructTimer;
         private WaitForSeconds selfDestructWait = new WaitForSeconds(5f);
-        private Vector3 targetLocation;
+        private bool noPath = false;
+        public bool NoPath => noPath;
 
         private void OnEnable()
         {
@@ -26,13 +26,10 @@ namespace HexGame.Units
                 unitDetection = this.GetComponentInChildren<UnitDetection>();
             if (seeker == null)
                 seeker = this.GetComponent<Seeker>();
-
-            //seeker.pathCallback += PathComplete;
         }
 
         private void OnDisable()
         {
-            //seeker.pathCallback -= PathComplete;
             behaviors = this.GetComponents<UnitBehavior>();
             StopAllCoroutines();
             target = null;
@@ -53,14 +50,8 @@ namespace HexGame.Units
         {
             if (!_isFunctional)
                 return;
-            //checks if target is in range - will not be on the list if not in range
-            //if (unitDetection.TargetIsInList(target) && TargetInsideMaxRange(target))
-            //    setDestination.SetTargetLocation(this.transform.position);
-            //else
-            //    target = null;
 
-
-            if (target == null || !target.gameObject.activeInHierarchy)
+            if (target == null || !target.gameObject.activeInHierarchy || !HasPath)
                 SetTarget(GetTarget());
             else if (unitDetection.HasTargetInRange() && !unitDetection.TargetIsInList(target))
                 SetTarget(unitDetection.GetNearestTarget());
@@ -78,9 +69,6 @@ namespace HexGame.Units
 
         protected Unit GetTarget()
         {
-            //if (target != null && target.gameObject.activeInHierarchy)
-            //    return target;
-
             if (!unitDetection.HasTargetInRange())
                 return EnemyTargeting.GetHighestValueTarget(this.transform.position, this.GetMinRangeInHex());
             else
@@ -89,10 +77,6 @@ namespace HexGame.Units
 
         public void SetTarget(Unit target)
         {
-            if (targetLocation == unit.transform.position)
-                return;
-            targetLocation = unit.transform.position;
-
             SetAllTargets(target);
             if (target == null)
                 return;
@@ -106,9 +90,58 @@ namespace HexGame.Units
                     behavior.SetTarget(target);
             }
 
+            HexTile tile = HexTileManager.GetHexTileAtLocation(target.transform.position);
+            if (tile != null && tile.TileType == HexTileType.hill)
+            {
+                Debug.Log("Target is on a hill");
+                //NavTargetUnit navTarget = target.GetComponentInChildren<NavTargetUnit>();
+                //if(navTarget != null)
+                //    target = navTarget;
+                //else
+                //{
+                //    navTarget = PlaceNavTargetUnit(target);
+                //    target = navTarget;
+                //}
+            }
+
             this.target = target;
             //setDestination.SetTarget(target.transform);
             seeker.StartPath(this.transform.position, target.transform.position, PathComplete);
+        }
+
+
+        //finds closest walkable tile to target and places NavTargetUnit on it
+        private NavTargetUnit PlaceNavTargetUnit(Unit target)
+        {
+            List<Hex3> neighbors = Hex3.GetNeighborLocations(target.transform.position);
+            float distance = float.MaxValue;
+            HexTile location = null;
+            foreach (var neighbor in neighbors)
+            {
+                HexTile tile = HexTileManager.GetHexTileAtLocation(neighbor);
+                if (tile == null || !tile.Walkable)
+                    continue;
+
+                float dist = (tile.transform.position - this.transform.position).magnitude;
+                if (dist < distance)
+                {
+                    distance = dist;
+                    location = tile;
+                }
+            }
+
+            if (location == null)
+            {
+                Debug.LogError("No valid location for NavTargetUnit", this.gameObject);
+                return null;
+            }
+            else
+            {
+                GameObject navTarget = new GameObject("NavTargetUnit");
+                navTarget.transform.position = location.transform.position;
+                navTarget.transform.SetParent(target.transform);
+                return navTarget.AddComponent<NavTargetUnit>();
+            }
         }
 
         private void SetAllTargets(Unit target)
@@ -127,42 +160,41 @@ namespace HexGame.Units
         {
             if (PathGoesToTarget(p, target))
             {
-                noPath = false;
-                if(selfDestructTimer != null)
-                    StopCoroutine(selfDestructTimer);
                 currentState = UnitState.movingToTarget;
                 setDestination.SetPath(p, target.transform);
+                noPath = false;
             }
             else
             {
                 currentState = UnitState.searchingForNewTarget;
                 target = null; //can no longer get to target
-                if (!noPath)
-                    selfDestructTimer = StartCoroutine(CountDownTimer());
                 noPath = true;
                 Debug.LogError("Unit Does not have a target", this.gameObject);
             }
         }
 
-        private IEnumerator CountDownTimer()
-        {
-            yield return selfDestructWait;
-            if (noPath)
-            {
-                this.gameObject.GetComponent<EnemyUnit>().DoDamage(1000);
-                Debug.LogError("Unit self destructed", this.gameObject);
-            }
-        }
-
         private bool PathGoesToTarget(Path p, Unit target)
         {
-            if (target == null || p.path.Count == 0)
+            if (target == null || p == null || p.path == null || p.path.Count == 0)
             {
                 return false;
             }
 
             if (((Vector3)p.path[p.path.Count - 1].position - target.transform.position).sqrMagnitude < 1f)
                 return true;
+
+            HexTile targetTile = HexTileManager.GetHexTileAtLocation(target.transform.position);
+            if (targetTile == null)
+                return false;
+
+            if (targetTile.TileType == HexTileType.hill)
+            {
+                HexTile hexTile = HexTileManager.GetHexTileAtLocation(p.vectorPath[^2]);
+                if (hexTile == null)
+                    return false;
+
+                return hexTile.Walkable;
+            }
             else
             {
                 return false;
@@ -171,15 +203,15 @@ namespace HexGame.Units
 
         private bool TargetInsideMinRange(Unit target)
         {
-            if(target == null)
+            if (target == null)
                 return false;
 
             return (target.transform.position - this.transform.position).sqrMagnitude < GetStat(Stat.minRange) * GetStat(Stat.minRange);
         }
-        
+
         private bool TargetInsideMaxRange(Unit target)
         {
-            if(target == null)
+            if (target == null)
                 return false;
 
             return (target.transform.position - this.transform.position).sqrMagnitude < GetStat(Stat.maxRange) * GetStat(Stat.maxRange);

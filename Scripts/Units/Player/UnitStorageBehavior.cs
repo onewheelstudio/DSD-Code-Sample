@@ -1,5 +1,5 @@
+using HexGame.Grid;
 using HexGame.Resources;
-using OWS.Nova;
 using Sirenix.OdinInspector;
 using System;
 using System.Collections;
@@ -15,31 +15,39 @@ namespace HexGame.Units
     /// Designed as small storage for units that use resources
     /// Not designed for storage buildings?
     /// </summary>
-    public class UnitStorageBehavior : UnitBehavior, IStoreResource, ISelfValidator, IHaveRequestPriority, IHaveResources
+    public class UnitStorageBehavior : UnitBehavior, IStoreResource, IHaveRequestPriority, IHaveResources, IHaveButtons
     {
-        [SerializeField]
-        private Transform landingPad;
-        public Vector3 landingPadPosition => landingPad != null ? landingPad.position : this.transform.position;
+        [SerializeField] private LandingPad[] landingPads;
+        public Vector3 landingPadPosition => GetLandingPosition();
 
         [SerializeField]
         private CargoManager.RequestPriority requestPriority = CargoManager.RequestPriority.medium;
+        private CargoManager.RequestPriority previousPriority = CargoManager.RequestPriority.medium;
 
         [SerializeField]
-        private List<ResourceAmount> resourceStored = new List<ResourceAmount>();
-        private List<ResourceAmount> resourceInTransit = new List<ResourceAmount>();
-        private List<ResourceAmount> resourceRequested = new List<ResourceAmount>();
-        private List<ResourceAmount> resourcePickup = new List<ResourceAmount>();
+        protected List<ResourceAmount> resourceStored = new List<ResourceAmount>();
+        protected List<ResourceAmount> resourceInTransit = new List<ResourceAmount>();
+        protected List<ResourceAmount> resourcePickup = new List<ResourceAmount>();
+        //protected object listLock = new object();
 
         [SerializeField] private List<ResourceAmount> storageLimits = new List<ResourceAmount>();
 
-        [SerializeField]
-        protected bool allowAllTypes = false;
-        [SerializeField]
-        [HideIf("allowAllTypes")]
-        protected List<ResourceType> allowedTypes = new List<ResourceType>();
-        [SerializeField]
-        protected List<ResourceType> pickUpTypes = new List<ResourceType>();
+        [SerializeField] 
+        protected HashSet<ResourceType> allowedTypes = new HashSet<ResourceType>();
+        public HashSet<ResourceType> AllowedTypes => allowedTypes;
+        [SerializeField, OnValueChanged("ResourcesSet")]
+        protected HashSet<ResourceType> pickUpTypes = new HashSet<ResourceType>();
+        [SerializeField, OnValueChanged("ResourcesSet")]
+        protected HashSet<ResourceType> deliverTypes = new HashSet<ResourceType>();
+
+
         [SerializeField] private bool alwaysFillUp = false;
+        [SerializeField] private bool deliverWithOutShuttle = false;
+        public bool DeliverWithOutShuttle => deliverWithOutShuttle;
+        private int noShuttleRange = 0;
+        public int NoShuttleRange => noShuttleRange <= 0 ? (int)unit.GetStat(Stat.maxRange) : noShuttleRange;
+        [ShowIf("deliverWithOutShuttle")]
+        public List<ResourceType> noShuttleResouces = new();
 
         public event System.Action<UnitStorageBehavior, ResourceAmount> resourceUsed;
         public event System.Action<UnitStorageBehavior, ResourceAmount> resourceDelivered;
@@ -50,17 +58,39 @@ namespace HexGame.Units
         private StatusIndicator statusIndicator;
 
         [Header("Delivery Locations")]
-        [SerializeField]private List<UnitStorageBehavior> connections = new List<UnitStorageBehavior>();
+        [SerializeField]protected HashSet<UnitStorageBehavior> connections = new HashSet<UnitStorageBehavior>();
+        private List<UnitStorageBehavior> connectionByPriority = new List<UnitStorageBehavior>();
+        private bool connectionsLocked;
+
         protected static CargoManager cargoManager;
         public event Action<UnitStorageBehavior> connectionChanged;
         public static Action<UnitStorageBehavior, UnitStorageBehavior> connectionAdded;
         public static Action<UnitStorageBehavior, UnitStorageBehavior> connectionRemoved;
-        public static event Action<UnitStorageBehavior> startListeningForConnection;
-        public static event Action<UnitStorageBehavior> stopListeningForConnection;
-        private UIControlActions uiControls;
+        public static event Action<UnitStorageBehavior> startListeningAddConnection;
+        public static event Action<UnitStorageBehavior> stopListeningAddConnection;
+        public static event Action<UnitStorageBehavior> startListeningRemoveConnection;
+        public static event Action<UnitStorageBehavior> stopListeningRemoveConnection;
+        private static UIControlActions uiControls;
         public bool createStartingConnection = true;
         public bool cargoWithoutConnection = false;
+        public bool preventConnections = false;
+        [SerializeField] protected bool preventUserMadeConnections = false;
         public List<CargoShuttleBehavior> shuttles = new List<CargoShuttleBehavior>();
+        private static bool connectionUnlocked = false;
+        public bool IsActive => isActive;
+        protected bool isActive = true;
+        public Vector3 Position => position;
+        protected Vector3 position;
+
+        public bool IsTransport => isTransport;
+        protected bool isTransport = false;
+
+        public bool IsSupplyShip => isSupplyShip;
+        protected bool isSupplyShip = false;
+
+        //resource monitoring
+        private List<ResourceAmount> productionCost;
+
 
         public float efficiency
         {
@@ -74,81 +104,88 @@ namespace HexGame.Units
                 }
             }
         }
-        protected void OnValidate()
-        {
-            //if (TryGetComponent<ResourceProductionBehavior>(out ResourceProductionBehavior rpb))
-            //{
-            //    allowedTypes.Clear();
-            //    pickUpTypes.Clear();
-            //    foreach (var resource in rpb.GetResourcesUsed())
-            //    {
-            //        allowedTypes.Add(resource.type);
-            //    }
 
-            //    foreach (var resource in rpb.GetResourcesProduced())
-            //    {
-            //        allowedTypes.Add(resource.type);
-            //        pickUpTypes.Add(resource.type);
-            //    }
-            //}
-        }
-
-        private void Awake()
+        protected void Awake()
         {
             if(cargoManager == null)
-                cargoManager = FindObjectOfType<CargoManager>();
-            uiControls = new UIControlActions();
+                cargoManager = FindFirstObjectByType<CargoManager>();
+
+            if(uiControls == null)
+                uiControls = new UIControlActions();
+
+            landingPads = this.GetComponentsInChildren<LandingPad>();
         }
 
-        private void OnEnable()
+        protected void OnEnable()
         {
+            isActive = true;
+            this.position = this.transform.position;
             if (statusIndicator == null)
                 statusIndicator = this.GetComponentInChildren<StatusIndicator>();
 
-            InitializeResources(allowedTypes);
+            InitializeResources(pickUpTypes, deliverTypes);
             if (requestPriority == CargoManager.RequestPriority.off) //allows tiles to be set to low by default
                 requestPriority = CargoManager.RequestPriority.medium;
 
             uiControls.UI.RightClick.canceled += StopListeningForConnection;
             UnitStorageBehavior.unitStorageRemoved += CleanUpAllConnections;
-            GlobalStorageBehavior.gloablStorageRemoved += CleanUpAllConnections;
+            RepairBehavior.repairMovedStarted += CleanUpAllConnections;
+            UnitInfoWindow.urgentPriorityTurnOn += UrgentPrioritySet;
+
+            SaveLoadManager.LoadComplete += CheckResourceLevels;
         }
-
-
 
         protected void OnDisable()
         {
+            isActive = false;
+            if(GameStateManager.LeavingScene)
+                return;
+
             StopBehavior();
 
             //recoup the cost of the resources if not a building spot
-            if(!this.gameObject.GetComponent<BuildingSpotBehavior>() && !this.gameObject.GetComponent<PlaceHolderTileBehavior>())
-                FindObjectOfType<CargoManager>()?.PlaceCubes(resourceStored, this.transform.position, 1f);
+            if(!this.gameObject.GetComponent<BuildingSpotBehavior>() && 
+               !this.gameObject.GetComponent<PlaceHolderTileBehavior>() &&
+               !this.gameObject.GetComponent<ResourcePickupBehavior>())
+                cargoManager?.PlaceCubes(resourceStored, this.transform.position, 1f);
             
             ClearResources();
             uiControls.UI.RightClick.canceled -= StopListeningForConnection;
             UnitStorageBehavior.unitStorageRemoved -= CleanUpAllConnections;
-            GlobalStorageBehavior.gloablStorageRemoved -= CleanUpAllConnections;
+            UnitInfoWindow.urgentPriorityTurnOn -= UrgentPrioritySet;
+            SaveLoadManager.LoadComplete -= CheckResourceLevels;
         }
+
 
         public override void StartBehavior()
         {
-            LandingPad lp = this.GetComponentInChildren<LandingPad>();
-            if (lp != null)
-                landingPad = lp.transform;
-
             unitStorageAdded?.Invoke(this);
             isFunctional = true;
-            AddStartingConnection();
+            if (this.unit == null)
+            {
+                //do something. This is to get around some background thread issues :)
+            }
+
+            RequestWorkers();
         }
 
         public override void StopBehavior()
         {
+            if (GameStateManager.LeavingScene)
+                return;
+
             unitStorageRemoved?.Invoke(this);
             isFunctional = false;
+            ReturnWorkers();
         }
 
-        public void InitializeResources(List<ResourceType> resources)
+        public void InitializeResources(HashSet<ResourceType> pickupTypes, HashSet<ResourceType> deliverTypes)
         {
+            List<ResourceType> resources = new List<ResourceType>();
+            resources.AddRange(pickupTypes);
+            resources.AddRange(deliverTypes);
+            resources = resources.Distinct().ToList();
+
             resourceStored.Clear();
             foreach (ResourceType resource in resources)
             {
@@ -156,17 +193,17 @@ namespace HexGame.Units
             }
         }
 
-        public bool DeliverResources(List<ResourceAmount> resources)
+        public virtual bool DeliverResources(List<ResourceAmount> resources)
         {
             foreach (var resource in resources)
             {
-                if(!allowAllTypes && !allowedTypes.Contains(resource.type))
+                if(deliverTypes.Contains(resource.type))
                     continue;
 
                 AddResourceToList(resource, resourceStored);
                 resourceDelivered?.Invoke(this, resource);
                 if (resource.type == ResourceType.Workers)
-                    WorkerManager.DeliverWorkers(resource.amount);
+                    WorkerManager.UpdateWorkerCounts();
             }
 
             return true;
@@ -174,20 +211,29 @@ namespace HexGame.Units
 
         public virtual bool DeliverResource(ResourceAmount resource)
         {
-            if (!allowAllTypes && !allowedTypes.Contains(resource.type) && resource.type != ResourceType.Workers)
+            if (!this.gameObject.activeSelf)
+                return false;
+
+            if (!deliverTypes.Contains(resource.type) && 
+                resource.type != ResourceType.Workers &&
+                !ResourceInTransit(resource))
                 return false;
 
             RemoveResourceFromList(resource, resourceInTransit);
             AddResourceToList(resource, resourceStored);
             resourceDelivered?.Invoke(this, resource);
             if (resource.type == ResourceType.Workers)
-                WorkerManager.DeliverWorkers(resource.amount);
+            {
+                WorkerManager.UpdateWorkerCounts();
+                workersRequested -= resource.amount;
+            }
             return true;
         }
 
         public void AddResourceForPickup(ResourceAmount resource)
         {
-            AddResourceToList(resource, resourceInTransit);
+            AddResourceToList(resource, resourceStored);
+            resourceDelivered?.Invoke(this, resource);
             CargoManager.MakeRequest(this, resource, CargoManager.RequestType.pickup);
         }
 
@@ -212,29 +258,19 @@ namespace HexGame.Units
         /// used by supply ship to cancel requests for failed quest
         /// </summary>
         /// <param name="resources"></param>
-        public void RemoveRequestForResources(List<ResourceAmount> resources)
-        {
-            foreach (var resource in resources)
-            {
-                for (var i = resourceRequested.Count - 1; i >= 0; i--)
-                {
-                    if (resourceRequested[i].type == resource.type)
-                        resourceRequested.RemoveAt(i);
-                }
-            }
-        }
 
         public virtual void ReserveForDelivery(ResourceAmount deliver)
         {
             AddResourceToList(deliver, resourceInTransit);
-            RemoveResourceFromList(deliver, resourceRequested);
         }
 
         public virtual ResourceAmount PickupResource(ResourceAmount resource)
         {
-            if(resource.type == ResourceType.Workers)
+            if (resource.type == ResourceType.Workers)
             {
-                resource.amount = WorkerManager.TakeWorkers(resource.amount);
+                //PickUpWorkers(resource);
+                resourcePickedUp?.Invoke(this, resource);
+                return resource;
             }
 
             if (GetAmountInTransit(resource.type) >= resource.amount)
@@ -254,6 +290,13 @@ namespace HexGame.Units
 
         public virtual void ReserveForPickup(ResourceAmount pickUp)
         {
+            if(pickUp.type == ResourceType.Workers)
+            {
+                RemoveResourceFromList(pickUp, resourceInTransit);
+                WorkerManager.UpdateWorkerCounts();
+                return;
+            }
+
             if (GetAmountStored(pickUp.type) >= pickUp.amount)
             {
                 RemoveResourceFromList(pickUp, resourceStored);
@@ -267,82 +310,45 @@ namespace HexGame.Units
             }
         }
 
+        [Button]
         public void CheckResourceLevels()
         {
+            if(SaveLoadManager.Loading)
+                return;
+
             RequestWorkers();
-
-            foreach (var resource in allowedTypes)
-            {
-                if (resource == ResourceType.Workers)
-                    continue;
-
-                int amount = (int)GetResourceStorageLimit(resource) - GetResourceTotal(resource);
-
-                if (amount <= 0)
-                    continue;
-
-                if (alwaysFillUp)
-                {
-                    //this needs a better solution...
-                    CargoManager.MakeRequest(this, new ResourceAmount(resource, amount), CargoManager.RequestType.deliver);
-                    AddResourceToList(new ResourceAmount(resource, amount), resourceRequested);
-                }
-                else if (GetResourceStorageLimit(resource) - GetResourceTotal(resource) >= CargoManager.transportAmount)
-                {
-                    CargoManager.MakeRequest(this, new ResourceAmount(resource, CargoManager.transportAmount), CargoManager.RequestType.deliver);
-                    AddResourceToList(new ResourceAmount(resource, CargoManager.transportAmount), resourceRequested);
-                }
-            }
         }
 
-        public void CheckResourceLevels(ResourceAmount resource)
+        private void RequestWorkers()
         {
-            if (GetResourceStorageLimit(resource) - GetResourceTotal(resource.type) >= CargoManager.transportAmount)
-            {
-                CargoManager.MakeRequest(this, new ResourceAmount(resource.type, CargoManager.transportAmount), CargoManager.RequestType.deliver);
-                AddResourceToList(new ResourceAmount(resource.type, CargoManager.transportAmount), resourceRequested);
-            }
+            if (GetStat(Stat.workers) == 0 || SaveLoadManager.Loading)
+                return;
+
+            int requestAmount = (int)GetStat(Stat.workers) - GetResourceTotal(ResourceType.Workers) - workersRequested;
+            if (requestAmount <= 0)
+                return;
+            
+            workersRequested = requestAmount;
+            WorkerManager.RequestWorkers(requestAmount, this);
         }
 
-        public void RequestWorkers()
+        public void ReturnWorkers()
         {
             if (GetStat(Stat.workers) == 0)
                 return;
 
-            int requestAmount = (int)GetStat(Stat.workers) - GetResourceTotal(ResourceType.Workers);
-            if (requestAmount > 0)
-            {
-                CargoManager.MakeRequest(this, new ResourceAmount(ResourceType.Workers, requestAmount), CargoManager.RequestType.deliver);
-                AddResourceToList(new ResourceAmount(ResourceType.Workers, requestAmount), resourceRequested);
-            }
+            int requestAmount = GetAmountStored(ResourceType.Workers);
+            WorkerManager.ReturnWorkers(requestAmount);
         }
 
-        public void RequestMaxWorkers()
+        public virtual int GetWorkerTotal()
         {
-            if (GetStat(Stat.housing) == 0)
-                return;
-
-            ResourceAmount colonists = resourceStored.Where(x => x.type == ResourceType.Workers).FirstOrDefault();
-            colonists.amount = GetIntStat(Stat.housing) - colonists.amount;
-
-            if (GetResourceStorageLimit(colonists) - GetResourceTotal(colonists.type) >= 0)
-            {
-                Debug.Log($"requesting {colonists.amount} workers");
-                CargoManager.MakeRequest(this, colonists, CargoManager.RequestType.deliver);
-                AddResourceToList(new ResourceAmount(colonists.type, CargoManager.transportAmount), resourceRequested);
-            }
+            return GetAmountStored(ResourceType.Workers);
         }
-                
-        public bool RequestResource(ResourceAmount resource)
+
+        public virtual int GetWorkersNeed()
         {
-            if (GetResourceStorageLimit(resource) - GetResourceTotal(resource.type) >= 0)
-            {
-                CargoManager.MakeRequest(this, resource, CargoManager.RequestType.deliver);
-                AddResourceToList(resource, resourceRequested);
-                return true;
-            }
-            else
-                return false;
+            return (int)GetStat(Stat.workers) - GetWorkerTotal();
         }
 
         public virtual int GetAmountStored(ResourceType type)
@@ -356,24 +362,17 @@ namespace HexGame.Units
             return 0;
         }
 
-        private int GetAmountInTransit(ResourceType type)
+        protected int GetAmountInTransit(ResourceType type)
         {
-            foreach (var resource in resourceInTransit)
-            {
-                if (type == resource.type)
-                    return resource.amount;
-            }
-
-            return 0;
-        }
-
-        private int GetAmountRequested(ResourceType type)
-        {
-            foreach (var resource in resourceRequested)
-            {
-                if (type == resource.type)
-                    return resource.amount;
-            }
+            //lock(listLock)
+            //{
+                for (int i = 0; i < resourceInTransit.Count; i++)
+                {
+                    ResourceAmount resource = resourceInTransit[i];
+                    if (type == resource.type)
+                        return resource.amount;
+                }
+            //}
 
             return 0;
         }
@@ -387,13 +386,13 @@ namespace HexGame.Units
         public virtual int TotalStored()
         {
             int total = 0;
-            foreach (var resource in resourceStored)
+            for (int i = 0; i < resourceStored.Count; i++)
+            {
+                ResourceAmount resource = resourceStored[i];
                 total += resource.amount;
+            }
 
             //foreach (var resource in resouceInTransit)
-            //    total += resource.amount;
-
-            //foreach (var resource in resourceRequested)
             //    total += resource.amount;
 
             return total;
@@ -402,42 +401,22 @@ namespace HexGame.Units
         public int GetResourceTotal(ResourceType type)
         {
             int total = 0;
-            foreach (var resource in resourceStored)
-            {
-                if (resource.type == type)
-                    total += resource.amount;
-            }
-            foreach (var resource in resourceInTransit)
-            {
-                if (resource.type == type)
-                    total += resource.amount;
-            }
-            foreach (var resource in resourceRequested)
-            {
-                if (resource.type == type)
-                    total += resource.amount;
-            }
+            //lock(listLock)
+            //{
+                for (int i = 0; i < resourceStored.Count; i++)
+                {
+                    ResourceAmount resource = resourceStored[i];
+                    if (resource.type == type)
+                        total += resource.amount;
+                }
+                for (int i = 0; i < resourceInTransit.Count; i++)
+                {
+                    ResourceAmount resource = resourceInTransit[i];
+                    if (resource.type == type)
+                        total += resource.amount;
+                }
+            //}
             return total;
-        }
-
-        public virtual int GetWorkerTotal()
-        {
-            int total = 0;
-            total += resourceStored.Where(x => x.type == ResourceType.Workers).FirstOrDefault().amount;
-            total += resourceInTransit.Where(x => x.type == ResourceType.Workers).FirstOrDefault().amount;
-            return total;
-        }
-
-        public virtual int GetWorkersNeed()
-        {
-            int workersNeeded = 0;
-            foreach (var resource in resourceRequested)
-            {
-                if (resource.type == ResourceType.Workers)
-                    workersNeeded += resource.amount;
-            }
-
-            return workersNeeded;
         }
 
         public bool TryUseAllResources(List<ResourceAmount> resourceList)
@@ -448,12 +427,11 @@ namespace HexGame.Units
             if (!HasAllResources(resourceList))
                 return false;
 
-            foreach (var resource in resourceList)
+            for (int i = 0; i < resourceList.Count; i++)
             {
-                RemoveResourceFromList(resource, resourceStored);
-                resourceUsed?.Invoke(this, resource);
+                RemoveResourceFromList(resourceList[i], resourceStored);
+                resourceUsed?.Invoke(this, resourceList[i]);
             }
-
             return true;
         }
 
@@ -470,45 +448,67 @@ namespace HexGame.Units
 
         public virtual bool HasAllResources(List<ResourceAmount> resourceList)
         {
-            foreach (var resource in resourceList)
+            for (int i = 0; i < resourceList.Count; i++)
             {
-                if (!HasResource(resource))
+                if (!HasResource(resourceList[i]))
                     return false;
             }
-
             return true;
         }
+
         public virtual bool HasResource(ResourceAmount resource)
         {
-            foreach (var r in resourceStored)
+            for (int i = 0; i < resourceStored.Count; i++)
             {
-                if (r.type == resource.type && r.amount >= resource.amount)
+                if (resource.type == resourceStored[i].type && resource.amount <= resourceStored[i].amount)
                     return true;
             }
 
             return false;
         }
 
-        public bool TryStoreResource(ResourceAmount resource)
+        /// <summary>
+        /// Can the resources be storaged as a delivery?
+        /// </summary>
+        /// <param name="deliver"></param>
+        /// <returns></returns>
+        public virtual bool CanDeliverResource(ResourceAmount deliver)
         {
-            if (!CanStoreResource(resource))
+            if (!deliverTypes.Contains(deliver.type))
                 return false;
-            else
-            {
-                StoreResource(resource);
-                return true;
-            }
+
+            return GetResourceStorageLimit(deliver) - GetResourceTotal(deliver.type) >= deliver.amount;
         }
 
-        public virtual bool CanStoreResource(ResourceAmount deliver)
+        private bool ResourceInTransit(ResourceAmount deliver)
         {
-            if (!allowAllTypes && !allowedTypes.Contains(deliver.type))
+            for (int i = 0; i < resourceInTransit.Count; i++)
+            {
+                if (resourceInTransit[i].type == deliver.type)
+                    return true;
+            }
+            return false;
+        }
+        
+        public virtual bool CanStoreForPickup(ResourceAmount deliver)
+        {
+            if (!pickUpTypes.Contains(deliver.type))
                 return false;
-            //I think GetAmountStored should be GetResourceTotal
-            if (GetResourceStorageLimit(deliver) - GetResourceTotal(deliver.type) >= deliver.amount)
-                return true;
-            else
+
+            return GetResourceStorageLimit(deliver) - GetResourceTotal(deliver.type) >= deliver.amount;
+        }
+        
+        /// <summary>
+        /// Can the the resource be stored for pickip?
+        /// </summary>
+        /// <param name="pickUp"></param>
+        /// <returns></returns>
+        public virtual bool CanPickupResource(ResourceAmount pickUp)
+        {
+            if (!pickUpTypes.Contains(pickUp.type))
                 return false;
+
+            return GetResourceTotal(pickUp.type) >= pickUp.amount;
         }
 
         public float GetResourceStorageLimit(ResourceAmount resourceType)
@@ -518,45 +518,15 @@ namespace HexGame.Units
         
         public float GetResourceStorageLimit(ResourceType resourceType)
         {
-            float maxStorage;
-            //is there limit on this type of resource
-            if (storageLimits.Any(x => x.type == resourceType))
-                maxStorage = storageLimits.Where(x => x.type == resourceType).First().amount;
-            else
-                maxStorage = GetStat(Stat.maxStorage);
-            return maxStorage;
-        }
-
-        public virtual bool CanPickUpResource(ResourceAmount deliver)
-        {
-            if (!pickUpTypes.Contains(deliver.type))
-                return false;
-
-            if (GetAmountStored(deliver.type) >= deliver.amount)
-                return true;
-            else
-                return false;
-        }
-
-
-        /// <summary>
-        /// Used to request a delivery of a given resource.
-        /// </summary>
-        /// <param name="resource"></param>
-        public void MakeDeliveryRequest(ResourceAmount resource, bool totalRequest = false)
-        {
-            //checks how much is currently stored or requested
-            if (totalRequest)
+            for (int i = 0; i < storageLimits.Count; i++)
             {
-                int amount = GetAmountStored(resource.type) + GetAmountRequested(resource.type);
-                resource = new ResourceAmount(resource.type, resource.amount - amount);
+                if (storageLimits[i].type == resourceType)
+                {
+                    return storageLimits[i].amount;
+                }
             }
 
-            if(resource.amount <= 0)
-                return;
-
-            CargoManager.MakeRequest(this, resource, CargoManager.RequestType.deliver);
-            AddResourceToList(new ResourceAmount(resource.type, resource.amount), resourceRequested);
+            return GetStat(Stat.maxStorage);
         }
 
         public virtual void StoreResource(ResourceAmount resource)
@@ -611,54 +581,59 @@ namespace HexGame.Units
 
         private void SetResourceAmount(ResourceType type, int amount)
         {
-            for (int i = 0; i < resourceStored.Count; i++)
-            {
-                if (resourceStored[i].type == type)
-                    resourceStored[i] = new ResourceAmount(resourceStored[i].type, amount);
-            }
+            //lock(listLock)
+            //{
+                for (int i = 0; i < resourceStored.Count; i++)
+                {
+                    if (resourceStored[i].type == type)
+                        resourceStored[i] = new ResourceAmount(resourceStored[i].type, amount);
+                }
+            //}
         }
 
         private void ClearResources()
         {
             resourceStored.Clear();
-            resourceRequested.Clear();
             resourceInTransit.Clear();
         }
 
         protected void AddResourceToList(ResourceAmount resource, List<ResourceAmount> list)
         {
-            for (int i = 0; i < list.Count; i++)
-            {
-                if (resource.type == list[i].type)
+            //lock(listLock)
+            //{
+                for (int i = 0; i < list.Count; i++)
                 {
-                    list[i] += resource;
-                    if (list[i].amount < 0)
-                        Debug.Log($"resource is negative {list[i].amount}");
-                    return;
+                    if (resource.type == list[i].type)
+                    {
+                        list[i] += resource;
+                        if (list[i].amount < 0)
+                            Debug.Log($"resource is negative {list[i].amount}");
+                        return;
+                    }
                 }
-            }
 
-            list.Add(resource);
+                list.Add(resource);
+            //}
         }
 
         protected void RemoveResourceFromList(ResourceAmount resource, List<ResourceAmount> list)
         {
-            for (int i = 0; i < list.Count; i++)
-            {
-                if (resource.type == list[i].type)
+            //lock(listLock)
+            //{
+                for (int i = 0; i < list.Count; i++)
                 {
-                    list[i] -= resource;
-                    if (list[i].amount < 0)
-                        Debug.Log($"{resource.type} is negative {list[i].amount}", this.gameObject); 
-                    return;
+                    if (resource.type == list[i].type)
+                    {
+                        list[i] -= resource;
+                        if (list[i].amount < 0)
+                        {
+                            Debug.Log($"{resource.type} is negative {list[i].amount}", this.gameObject);
+                            list[i] = new ResourceAmount(resource.type, 0);
+                        }
+                        return;
+                    }
                 }
-            }
-        }
-
-        public void Validate(SelfValidationResult result)
-        {
-            if (!allowAllTypes && allowedTypes.Count == 0)
-                result.AddError("Is not global storage and no allowed types set.");
+            //}
         }
 
         public RequestStorageInfo GetPopUpRequestPriority()
@@ -668,97 +643,78 @@ namespace HexGame.Units
                 priority = this.requestPriority,
                 setPriority = SetRequestPriority,
                 getPriority = GetPriority,
+                revertPrioity = RevertRequestPriority,
                 connections = connections,
                 startAddConnection = StartAddConnection,
+                startRemoveConnection = StartRemoveConnection,
             };
         }
 
-        protected virtual void AddStartingConnection()
+        private void UrgentPrioritySet(PlayerUnit unit)
         {
-            if (this.TryGetComponent<GlobalStorageBehavior>(out GlobalStorageBehavior gsb))
+            if (unit == null || unit.gameObject == null)
                 return;
 
-            if (!this.createStartingConnection)
-                return;
-            
-            if(this.GetComponent<BuildingSpotBehavior>() == null)
-            {
-                GlobalStorageBehavior globalStorageBehavior = FindObjectsOfType<GlobalStorageBehavior>()
-                                                .OrderBy(x => Vector3.Distance(x.transform.position, this.transform.position))
-                                                .FirstOrDefault();
-
-                if (globalStorageBehavior == null)
-                    return;
-
-                //suppressing warnings for connection only for building spots
-                AddDeliverConnection(globalStorageBehavior, true);
-
-                if(HasIncomingDelivery(this) || this.allowAllTypes)
-                    globalStorageBehavior.AddDeliverConnection(this, true);
-            }
-            else //building spots connect to all nearby global storage
-            {
-                GlobalStorageBehavior[] globalStorageBehaviors = FindObjectsOfType<GlobalStorageBehavior>()
-                                .Where(x => HelperFunctions.HexRangeFloat(x.transform.position, this.transform.position) <= CargoManager.transportRange)
-                                .ToArray();
-
-                foreach (var gs in globalStorageBehaviors)
-                    gs.AddDeliverConnection(this);
-            }
-
-        }
-
-        //compares allowed types to pick up types to determine if deliveries can be made
-        private bool HasIncomingDelivery(UnitStorageBehavior usb)
-        {
-            foreach (var resouces in usb.allowedTypes)
-            {
-                //if (resouces == ResourceType.Terrene)
-                //    return true;//special flower :) This is for the collection tower.
-
-                if(!usb.pickUpTypes.Contains(resouces))
-                    return true;
-            }
-
-            return false;
+            //only have one unit that is at urgent priority
+            if (unit.gameObject != this.gameObject && requestPriority == CargoManager.RequestPriority.urgent)
+                RevertRequestPriority();
+            else if(unit.gameObject == this.gameObject)
+                SetRequestPriority(CargoManager.RequestPriority.urgent);
         }
 
         private void StartAddConnection()
         {
-            if (UnitSelectionManager.addConnection)
+            if (UnitSelectionManager.changingConnections)
             {
-                StopListeningForConnection();
+                StopListeningChangingConnection();
                 return;
             }
 
-            UnitSelectionManager.addConnection = true;
+            UnitSelectionManager.changingConnections = true;
             UnitSelectionManager.unitClicked += AddNewConnection;
             uiControls.Enable();
-            startListeningForConnection?.Invoke(this);
+            startListeningAddConnection?.Invoke(this);
         }
         private void StopListeningForConnection(InputAction.CallbackContext context)
         {
-            StopListeningForConnection();
+            StopListeningChangingConnection();
         }
-        private void StopListeningForConnection()
+
+        private void StartRemoveConnection()
         {
-            UnitSelectionManager.addConnection = false;
+            if (UnitSelectionManager.changingConnections)
+            {
+                StopListeningChangingConnection();
+                return;
+            }
+
+            UnitSelectionManager.changingConnections = true;
+            UnitSelectionManager.unitClicked += RemoveConnection;
+            uiControls.Enable();
+            startListeningRemoveConnection?.Invoke(this);
+        }
+
+        protected void StopListeningChangingConnection()
+        {
+            UnitSelectionManager.changingConnections = false;
             UnitSelectionManager.unitClicked -= AddNewConnection;
+            UnitSelectionManager.unitClicked -= RemoveConnection;
             uiControls?.Disable();
-            stopListeningForConnection?.Invoke(this);
+            stopListeningAddConnection?.Invoke(this);
+            stopListeningRemoveConnection?.Invoke(this);
         }
 
         private void AddNewConnection(PlayerUnit playerUnit)
         {
             if (playerUnit.gameObject == this.gameObject)
                 return;
+
             UnitStorageBehavior usb = playerUnit.GetComponent<UnitStorageBehavior>();
+
             AddDeliverConnection(usb);
-            if(usb is GlobalStorageBehavior) //only double connect if it's a global storage
-                usb.AddDeliverConnection(this);
         }
 
-        public void AddDeliverConnection(UnitStorageBehavior usb, bool suppressWarning = false)
+        public virtual void AddDeliverConnection(UnitStorageBehavior usb, bool suppressWarning = false)
         {
             if (connections.Contains(usb))
                 return;
@@ -769,6 +725,15 @@ namespace HexGame.Units
             if (usb == this)
                 return;
 
+            if (this.preventUserMadeConnections)
+                return;
+
+            if (this.preventConnections || usb.preventConnections)
+            {
+                SFXManager.PlaySFX(SFXType.error);
+                return;
+            }
+
             if (!suppressWarning && HelperFunctions.HexRange(this.transform.position, usb.transform.position) > CargoManager.transportRange)
             {
                 MessagePanel.ShowMessage("Connection out of range", this.gameObject);
@@ -778,37 +743,26 @@ namespace HexGame.Units
 
             connections.Add(usb);
             connectionAdded?.Invoke(this, usb);
-            if (UnitSelectionManager.selectedUnit?.gameObject == this.gameObject)
-                connectionChanged?.Invoke(this);
+            OrderConnections();
+
+            if(SaveLoadManager.Loading)
+                return;
+
+            if (UnitSelectionManager.selectedUnit != null && UnitSelectionManager.selectedUnit.gameObject == this.gameObject)
+                ConnectionChanged();
 
             if (!Keyboard.current.shiftKey.isPressed)
-                StopListeningForConnection();
+                StopListeningChangingConnection();
         }
 
-        internal void MoveConnectionDown(int index)
+        protected void ConnectionChanged()
         {
-            if(index == connections.Count - 1)
-                return;
-
-            UnitStorageBehavior unitStorageBehavior = connections[index];
-            UnitStorageBehavior unitStorageBehavior2 = connections[index + 1];
-            connections[index] = unitStorageBehavior2;
-            connections[index + 1] = unitStorageBehavior;
-
             connectionChanged?.Invoke(this);
         }
 
-        internal void MoveConnectionUp(int index)
+        private void CleanUpAllConnections(RepairBehavior behavior, UnitStorageBehavior usb)
         {
-            if(index == 0)
-                return;
-
-            UnitStorageBehavior unitStorageBehavior = connections[index];
-            UnitStorageBehavior unitStorageBehavior2 = connections[index - 1];
-            connections[index] = unitStorageBehavior2;
-            connections[index - 1] = unitStorageBehavior;
-
-            connectionChanged?.Invoke(this);
+            CleanUpAllConnections(usb);
         }
 
         /// <summary>
@@ -837,16 +791,20 @@ namespace HexGame.Units
         /// removes local connection and the connection from the other storage
         /// </summary>
         /// <param name="behavior"></param>
-        public void RemoveConnection(int index)
+        public void RemoveConnection(UnitStorageBehavior usb)
         {
-            if(index >= connections.Count)
+            connectionRemoved?.Invoke(this, usb);
+            RemoveConnectionFromList(usb);
+        }
+
+        private void RemoveConnection(PlayerUnit playerUnit)
+        {
+            if (playerUnit.gameObject == this.gameObject)
                 return;
 
-            if (connections[index] is GlobalStorageBehavior)
-                connections[index].RemoveConnectionFromList(this);
-            
-            connectionRemoved?.Invoke(this, connections[index]);
-            RemoveConnectionFromList(connections[index]);
+            UnitStorageBehavior usb = playerUnit.GetComponent<UnitStorageBehavior>();
+
+            RemoveConnectionFromList(usb);
         }
 
         //removes only the local connection
@@ -856,11 +814,21 @@ namespace HexGame.Units
             connectionRemoved?.Invoke(this, behavior);
             if (UnitSelectionManager.selectedUnit?.gameObject == this.gameObject)
                 connectionChanged?.Invoke(this);
+            StopListeningChangingConnection();
+            OrderConnections();
         }
 
         public void SetRequestPriority(CargoManager.RequestPriority requestType)
         {
+            //always store the last non-urgent priority
+            if (this.requestPriority != CargoManager.RequestPriority.urgent) 
+                this.previousPriority = this.requestPriority;
             this.requestPriority = requestType;
+        }
+
+        public void RevertRequestPriority()
+        {
+            this.requestPriority = this.previousPriority;
         }
 
         public CargoManager.RequestPriority GetPriority()
@@ -868,45 +836,86 @@ namespace HexGame.Units
             return this.requestPriority;
         }
 
-        public void SetAllowedTypes(List<ResourceType> resourceTypes)
+         
+        public void SetDeliverTypes(HashSet<ResourceType> deliverTypes)
         {
-            this.allowedTypes = resourceTypes;
+            this.deliverTypes = deliverTypes;
+            this.allowedTypes.UnionWith(deliverTypes);
         }
 
-        public IReadOnlyCollection<ResourceType> GetAllowedTypes()
+        public void AddDeliverType(ResourceType resource)
         {
-            if(allowAllTypes)
-            {
-                List<ResourceType> _allowedTypes = new List<ResourceType>();
-                foreach (ResourceType resource in System.Enum.GetValues(typeof(ResourceType)))
-                    _allowedTypes.Add(resource);
-                return _allowedTypes.AsReadOnly();
-            }
-            else
-                return allowedTypes.AsReadOnly();
+            this.deliverTypes.Add(resource);
+            this.allowedTypes.Add(resource);
         }
 
-        public List<PopUpResource> GetPopUpResources()
+        public void SetPickUpTypes(HashSet<ResourceType> pickupTypes)
         {
-            List<PopUpResource> resourceInfos = new List<PopUpResource>();
+            this.pickUpTypes = pickupTypes;
+            this.allowedTypes.UnionWith(pickupTypes);
+        }
+
+        public void AddPickUpType(ResourceType resource)
+        {
+            this.pickUpTypes.Add(resource);
+            this.allowedTypes.Add(resource);
+        }
+
+        public void RemovePickUpTypes(ResourceType resource)
+        {
+            this.pickUpTypes.Remove(resource);
+            this.allowedTypes.Remove(resource);
+        }
+
+        public void RemoveDeliverTypes(ResourceType resource)
+        {
+            this.deliverTypes.Remove(resource);
+            this.allowedTypes.Remove(resource);
+        }
+
+        public void AddToPickUpTypes(ResourceType resourceType)
+        {
+            if (!pickUpTypes.Contains(resourceType))
+                pickUpTypes.Add(resourceType);
+        }
+        public void ClearPickupTypes()
+        {
+            pickUpTypes.Clear();
+        }
+        public void ClearDeliveryTypes()
+        {
+            deliverTypes.Clear();
+        }
+
+        public List<PopUpResourceAmount> GetPopUpResources()
+        {
+            List<PopUpResourceAmount> resourceInfos = new List<PopUpResourceAmount>();
             foreach (var resource in resourceStored)
             {
-                if(resource.amount == 0 && !allowedTypes.Contains(resource.type) && !pickUpTypes.Contains(resource.type))
+                if(!deliverTypes.Contains(resource.type) && !pickUpTypes.Contains(resource.type))
                     continue;
 
-                resourceInfos.Add(new PopUpResource(resource, GetResourceStorageLimit(resource), 0, Color.white));
+                resourceInfos.Add(new PopUpResourceAmount(resource, GetResourceStorageLimit(resource), 0, Color.white));
             }
 
-            foreach (var resource in allowedTypes)
+            //trying to get the case where the building needs workers but doesn't have any yet
+            if(GetStat(Stat.workers) > 0)
+            {
+                int workerCount = GetAmountStored(ResourceType.Workers);
+                ResourceAmount workers = new ResourceAmount(ResourceType.Workers, workerCount);
+                resourceInfos.Add(new PopUpResourceAmount(workers, GetIntStat(Stat.workers), 0, Color.white));
+            }
+
+            foreach (var resource in pickUpTypes.Union(deliverTypes))
             {
                 if(!ListContainsResource(resourceStored, resource))
-                    resourceInfos.Add(new PopUpResource(new ResourceAmount(resource, 0), GetResourceStorageLimit(resource), 0, Color.white));
+                    resourceInfos.Add(new PopUpResourceAmount(new ResourceAmount(resource, 0), GetResourceStorageLimit(resource), 0, Color.white));
             }
 
             return resourceInfos;
         }
 
-        private bool ListContainsResource(List<ResourceAmount> list, ResourceType type)
+        protected bool ListContainsResource(List<ResourceAmount> list, ResourceType type)
         {
             foreach (var resource in list)
             {
@@ -919,63 +928,57 @@ namespace HexGame.Units
 
         public void SetLandingPosition(Transform landingPad)
         {
-            this.landingPad = landingPad;
+            landingPads = new LandingPad[] { landingPad.GetComponent<LandingPad>() };
         }
 
         internal void AdjustStorageForRecipe(ResourceProduction oldRecipe, ResourceProduction newRecipe)
         {
             foreach (var resource in oldRecipe.GetCost())
             {
-                allowedTypes.Remove(resource.type);
+                RemoveDeliverTypes(resource.type);
                 if(!RecipeContains(newRecipe, resource.type))
                     RequestPickUpOfAllResource(resource.type);
             }
 
             foreach (var resource in oldRecipe.GetProduction())
             {
-                allowedTypes.Remove(resource.type);
-                pickUpTypes.Remove(resource.type);
+                RemovePickUpTypes(resource.type);
                 if (!RecipeContains(newRecipe, resource.type))
                     RequestPickUpOfAllResource(resource.type);
             }
 
             foreach (var resource in newRecipe.GetCost())
             {
-                if(!allowedTypes.Contains(resource.type))
-                    allowedTypes.Add(resource.type);
+                AddDeliverType(resource.type);
                 //make sure we don't accidentally pickup things we need
-                pickUpTypes.Remove(resource.type);
-                CheckResourceLevels(resource);
+                RemovePickUpTypes(resource.type);
             }
 
             foreach (var resource in newRecipe.GetProduction())
             {
-                if(!allowedTypes.Contains(resource.type))
-                    allowedTypes.Add(resource.type);
-                if(!pickUpTypes.Contains(resource.type))
-                    pickUpTypes.Add(resource.type);
+                AddPickUpType(resource.type);
             }
+
+            this.productionCost = newRecipe.GetCost();
         }
 
-        public void AddToPickUpTypes(ResourceType resourceType)
+        //public List<ResourceType> GetAllowedResources()
+        //{
+        //    return allowedTypes;
+        //}
+
+        public HashSet<ResourceType> GetPickUpTypes() => pickUpTypes;
+        public HashSet<ResourceType> GetDeliverTypes() => deliverTypes;
+        public HashSet<ResourceType> GetAllowedResources()
         {
-            if(!pickUpTypes.Contains(resourceType))
-                pickUpTypes.Add(resourceType);
+            var allowedTypes = new HashSet<ResourceType>(pickUpTypes);
+            allowedTypes.UnionWith(deliverTypes);
+            return allowedTypes;
         }
 
-        public void ClearPickupTypes()
+        public virtual int GetStorageCapacity()
         {
-            pickUpTypes.Clear();
-        }
-
-        public void AddToAllowedTypes(ResourceType resourceType)
-        {
-            if(!allowedTypes.Contains(resourceType))
-                allowedTypes.Add(resourceType);
-        }
-        public void ClearAllowedTypes()
-        {
-            allowedTypes.Clear();
+            return this.GetIntStat(Stat.maxStorage) * GetAllowedResources().Count;
         }
 
         private bool RecipeContains(ResourceProduction recipe, ResourceType type)
@@ -1000,9 +1003,29 @@ namespace HexGame.Units
             CargoManager.MakeRequest(this, new ResourceAmount(resourceType, GetAmountStored(resourceType)), CargoManager.RequestType.pickup);
         }
 
-        public List<UnitStorageBehavior> GetConnections()
+        public HashSet<UnitStorageBehavior> GetConnections()
         {
             return connections;
+        }
+
+        public List<UnitStorageBehavior> GetConnectionsByPriority()
+        {
+            return connectionByPriority;
+        }
+
+        protected async Awaitable OrderConnections()
+        {
+            while (connectionsLocked)
+            {
+                await Awaitable.NextFrameAsync();
+            }
+            
+            connectionByPriority = connections.OrderByDescending(c => c.GetPriority()).ToList();
+        }
+
+        public void LockConnections(bool locked)
+        {
+            this.connectionsLocked = locked;
         }
 
         public List<ConnectionStatusInfo> GetConnectionInfo()
@@ -1013,64 +1036,211 @@ namespace HexGame.Units
                 ConnectionStatusInfo connectionStatusInfo = new ConnectionStatusInfo();
                 connectionStatusInfo.storage = connection;
                 connectionStatusInfo.status = GetConnectionStatus(connection);
+                connectionStatusInfo.resources = null;
+                connectionStatusInfos.Add(connectionStatusInfo);
+            }
+
+            return connectionStatusInfos;
+        }
+        
+        public List<ConnectionStatusInfo> GetConnectionInfoWithResource()
+        {
+            List<ConnectionStatusInfo> connectionStatusInfos = new List<ConnectionStatusInfo>();
+            foreach (var connection in connections)
+            {
+                ConnectionStatusInfo connectionStatusInfo = new ConnectionStatusInfo();
+                connectionStatusInfo.storage = connection;
+                connectionStatusInfo.status = GetConnectionStatus(connection);
+                connectionStatusInfo.resources = GetShippedResourceTypes(connection);
+                connectionStatusInfos.Add(connectionStatusInfo);
+            }
+
+            return connectionStatusInfos;
+        }
+        
+        public List<ConnectionStatusInfo> GetConnectionInfoByResource(ResourceType resource)
+        {
+            List<ConnectionStatusInfo> connectionStatusInfos = new List<ConnectionStatusInfo>();
+            foreach (var connection in connections)
+            {
+                if (!GetShippedResourceTypes(connection).Contains(resource))
+                    continue;
+
+                ConnectionStatusInfo connectionStatusInfo = new ConnectionStatusInfo();
+                connectionStatusInfo.storage = connection;
+                connectionStatusInfo.status = GetConnectionStatus(connection);
+                connectionStatusInfo.resources = GetShippedResourceTypes(connection);
                 connectionStatusInfos.Add(connectionStatusInfo);
             }
 
             return connectionStatusInfos;
         }
 
-        public ConnectionStatus GetConnectionStatus(UnitStorageBehavior destination)
+        public virtual ConnectionStatus GetConnectionStatus(UnitStorageBehavior destination)
         {
-            if(!this.allowAllTypes && (this.allowedTypes == null || this.allowedTypes.Count == 0))
-                return ConnectionStatus.unDeliverable;
-
-            if (destination.allowAllTypes)
-                return ConnectionStatus.deliverable;
-
-            if(destination.allowedTypes.Except(destination.pickUpTypes).Count() == 0)
-                return ConnectionStatus.unDeliverable;
-
-            //deliverable
-            if (this.allowAllTypes && destination.allowedTypes.Count > 0)
-            {
-                return ConnectionStatus.deliverable;
-
-                //foreach (ResourceType resourceType in destination.allowedTypes)
-                //{
-                //    if (destination.CanStoreResource(new ResourceAmount(resourceType, 1)))
-                //        return ConnectionStatus.deliverable;
-                //    else
-                //        return ConnectionStatus.storageFull;
-                //}
-            }
-            else if (!this.allowAllTypes && destination.allowedTypes.Count > 0)
-            {
-                foreach (var resource in this.pickUpTypes)
-                {
-                    if (destination.allowedTypes.Contains(resource))// && destination.CanStoreResource(new ResourceAmount(resource, 1)))
-                        return ConnectionStatus.deliverable;
-                    //else if(destination.allowedTypes.Contains(resource))
-                    //    return ConnectionStatus.storageFull;
-                }
-            }
-
-            //if we got this far and its global storage, then we are full
-            //if (destination is GlobalStorageBehavior)
+            //if(this.isSupplyShip && destination.allowAllTypes)
             //    return ConnectionStatus.deliverable;
-                //return ConnectionStatus.storageFull;
-                
-            //foreach (var resource in this.pickUpTypes)
-            //{
-            //    if (!destination.pickUpTypes.Contains(resource) && destination.allowedTypes.Contains(resource))
-            //        return ConnectionStatus.storageFull;
-            //}
-            
+
+            if(this.pickUpTypes.Count == 0)
+                return ConnectionStatus.unDeliverable;
+
+            if(destination.deliverTypes.Count() == 0)
+                return ConnectionStatus.unDeliverable;
+
+            if (destination.deliverTypes.Overlaps(this.pickUpTypes))
+                return ConnectionStatus.deliverable;
+
             return ConnectionStatus.unDeliverable;
+        }
+
+        /// <summary>
+        /// returns a collection of the resouces that CAN move between this and the destination
+        /// </summary>
+        /// <param name="destination"></param>
+        /// <returns></returns>
+        public HashSet<ResourceType> GetShippedResourceTypes(UnitStorageBehavior destination)
+        {
+            return this.pickUpTypes.Intersect(destination.deliverTypes).ToHashSet();
         }
 
         public ReadOnlyCollection<ResourceAmount> GetStoredResources()
         {
             return resourceStored.AsReadOnly();
+        }
+
+        public List<PopUpButtonInfo> GetButtons()
+        {
+            if (this.preventConnections || this.preventUserMadeConnections)
+                return new List<PopUpButtonInfo>();
+
+            List<PopUpButtonInfo> buttons = new List<PopUpButtonInfo>()
+            {
+                new PopUpButtonInfo(ButtonType.connections, null),
+            };
+
+            return buttons;
+        }
+        
+        public List<ResourceAmount> GetResourcesToSave()
+        {
+            List<ResourceAmount> resources = new List<ResourceAmount>(resourceStored);
+            //look for resources in transit that originated from this storage
+            //add them to the stored list
+            foreach (var resource in resourceInTransit)
+            {
+                if (!pickUpTypes.Contains(resource.type) && resource.type != ResourceType.Workers)
+                    continue;
+
+                for (int i = 0; i < resources.Count; i++)
+                {
+                    if (resources[i].type == resource.type)
+                    {
+                        resources[i] += resource;
+                    }
+                }
+            }
+
+            return resources;
+        }
+
+        public List<Hex3> GetConnectionLocations()
+        {
+            List<Hex3> locations = new List<Hex3>();
+            foreach (var connection in connections)
+            {
+                locations.Add(connection.transform.position);
+            }
+
+            return locations;
+        }
+        public void LoadStoredResources(List<ResourceAmount> resources)
+        {
+            foreach (var resource in resources)
+            {
+                if(pickUpTypes.Contains(resource.type) || resource.type == ResourceType.Workers)
+                    StoreResource(resource);
+                else
+                    DeliverResource(resource);
+            }
+        }
+
+        public void LoadConnections(List<Hex3> connectionLocations, Func<bool> buildingsCreated)
+        {
+            if (connectionLocations == null || connectionLocations.Count == 0)
+                return;
+
+            StartCoroutine(AddConnectionsDelayed(connectionLocations, buildingsCreated));
+        }
+
+        private IEnumerator AddConnectionsDelayed(List<Hex3> connectionLocations, Func<bool> buildingsCreated)
+        {
+            yield return new WaitUntil(buildingsCreated);
+            yield return null;
+
+            foreach (var location in connectionLocations)
+            {
+                if (UnitManager.TryGetPlayerUnitAtLocation(location, out PlayerUnit playerUnit))
+                    AddDeliverConnection(playerUnit.GetComponent<UnitStorageBehavior>(), true);
+            }
+        }
+
+        public void AdjustStorageForProject(SpecialProjectProduction project)
+        {
+            storageLimits.Clear();
+            pickUpTypes.Clear();
+            allowedTypes.Clear();
+            foreach (var resource in project.GetCost())
+            {
+                if (!allowedTypes.Contains(resource.type))
+                    allowedTypes.Add(resource.type);
+                //make sure we don't accidentally pickup things we need
+                storageLimits.Add(resource);
+            }
+        }
+        
+        /// <summary>
+        /// Sets the storage limits in the UnitStorageBehavior to match the build costs
+        /// This ensures the building spot can only store the exact amount needed for construction
+        /// </summary>
+        /// <param name="buildCosts">The resource costs required to build the unit</param>
+        public void AdjustStorageForBuildCosts(List<ResourceAmount> buildCosts)
+        {
+            // Clear existing storage limits and set new ones based on build costs
+            storageLimits.Clear();
+            deliverTypes.Clear();
+            allowedTypes.Clear();
+            
+            foreach (var resource in buildCosts)
+            {
+                storageLimits.Add(resource);
+                deliverTypes.Add(resource.type);
+                allowedTypes.Add(resource.type);
+            }
+        }
+
+        private Vector3 GetLandingPosition()
+        {
+            if(landingPads == null || landingPads.Length == 0)
+            {
+                return this.transform.position;
+            }
+
+            return landingPads[UnityEngine.Random.Range(0, landingPads.Length - 1)].transform.position;
+        }
+
+        /// <summary>
+        /// This position is used by the cargo system.
+        /// </summary>
+        public void UpdateStoredPosition()
+        {
+            this.position = this.transform.position;
+        }
+
+        private void ResourcesSet()
+        {
+            allowedTypes.Clear();
+            allowedTypes.UnionWith(deliverTypes);
+            allowedTypes.UnionWith(pickUpTypes);
         }
     }
 
@@ -1078,6 +1248,7 @@ namespace HexGame.Units
     {
         public UnitStorageBehavior storage;
         public ConnectionStatus status;
+        public HashSet<ResourceType> resources;
     }
 
     public enum ConnectionStatus

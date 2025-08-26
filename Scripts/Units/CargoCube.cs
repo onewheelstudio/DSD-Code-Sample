@@ -1,11 +1,14 @@
-using System.Collections;
-using System.Collections.Generic;
+using OWS.ObjectPooling;
+using System;
 using UnityEngine;
 
-public class CargoCube : MonoBehaviour
+public class CargoCube : MonoBehaviour, IPoolable<CargoCube>
 {
     public HexGame.Resources.ResourceType cargoType;
     private Transform _transform;
+    private Action<CargoCube> returnToPool;
+    public int positionIndex = -1;
+
     public Transform Transform
     {
         get
@@ -16,4 +19,20 @@ public class CargoCube : MonoBehaviour
         }
     }
 
+    private void OnDisable()
+    {
+        ReturnToPool();
+    }
+
+    public void Initialize(Action<CargoCube> returnAction)
+    {
+        this.returnToPool = returnAction;
+
+    }
+
+    public void ReturnToPool()
+    {
+        //invoke and return this object to pool
+        returnToPool?.Invoke(this);
+    }
 }

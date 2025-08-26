@@ -50,7 +50,7 @@ public class UnitStatusBars : MonoBehaviour
 
         float maxStorage = playerUnit.GetStat(Stat.maxStorage);
 
-        if (usb.GetAllowedTypes().Count == 0)
+        if (usb.GetDeliverTypes().Count == 0 && usb.GetPickUpTypes().Count == 0)
             return;
 
         int index = 1;

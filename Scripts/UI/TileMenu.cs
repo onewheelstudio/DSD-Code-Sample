@@ -7,19 +7,24 @@ using UnityEngine;
 public class TileMenu : BuildingSelectWindow
 {
     [SerializeField] private Transform buttonParent;
-    [SerializeField] private List<HexTileImage> tileImages = new List<HexTileImage>();
     private Dictionary<HexTileType, UIBlock2D> tileButtons = new Dictionary<HexTileType, UIBlock2D>();
+
+    public bool LoadComplete => loadComplete;
+    private bool loadComplete = false;
 
     private void Start()
     {
         UnlockTileButton(HexTileType.grass);
         UnlockTileButton(HexTileType.forest);
+        UnlockTileButton(HexTileType.aspen);
+        LockTileButton(HexTileType.hill);
         LockTileButton(HexTileType.water);
         LockTileButton(HexTileType.mountain);
         LockTileButton(HexTileType.sand);
-        LockTileButton(HexTileType.aspen);
 
         interactable = this.button.GetComponent<Interactable>();
+
+        CheatCodes.AddButton(()=> UnlockTileButton(HexTileType.mountain), "Unlock Mountain");
     }
 
     private new void OnEnable()

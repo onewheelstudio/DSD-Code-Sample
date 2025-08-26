@@ -5,6 +5,7 @@ using DG.Tweening;
 using HexGame.Resources;
 using Sirenix.Utilities;
 using System.Linq;
+using System;
 
 namespace HexGame.Units
 {
@@ -44,6 +45,8 @@ namespace HexGame.Units
         private Unit unit;
         private float range => unit.GetStat(Stat.maxRange);
         private float damage => unit.GetStat(Stat.damage);
+
+        public event Action MissileCreated;
 
         private void Start()
         {
@@ -95,21 +98,22 @@ namespace HexGame.Units
                 foreach (var missile in missiles)
                 {
                     if (!missile.activeSelf && storageBehavior.TryUseAllResources(projectileData.projectileCost))
+                    {
                         missile.SetActive(true);
+                        MissileCreated?.Invoke();
+                    }
                 }
-                StartCoroutine(FireEachBarrel(target, range));
+
+                if(target != null)
+                    StartCoroutine(FireEachBarrel(target, range));
             }
         }
 
 
         IEnumerator FireEachBarrel(Unit target, float range)
         {
-            if (!canFire || target == null)
-                yield break;
-
             if(storageBehavior.efficiency <= 0.01f)
             {
-                //MessagePanel.ShowMessage("No workers.", this.gameObject);
                 yield break;
             }    
 

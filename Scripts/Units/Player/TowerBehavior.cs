@@ -1,4 +1,5 @@
 using HexGame.Resources;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using static HexGame.Resources.ResourceProductionBehavior;
@@ -27,7 +28,7 @@ namespace HexGame.Units
             storageBehavior.resourceDelivered += ResourceDelivered;
             DayNightManager.toggleDay += RequestResources;
             DayNightManager.toggleDay += SetWarningStatus;
-
+            storageBehavior.AddDeliverType(ResourceType.Energy);
         }
 
         private void OnDisable()
@@ -35,6 +36,11 @@ namespace HexGame.Units
             DayNightManager.toggleDay -= RequestResources;
             DayNightManager.toggleDay -= SetWarningStatus;
             storageBehavior.resourceDelivered -= ResourceDelivered;
+        }
+
+        private void RequestResources()
+        {
+            storageBehavior.CheckResourceLevels();
         }
 
         private void RequestResources(int obj)
@@ -106,12 +112,15 @@ namespace HexGame.Units
             isFunctional = true;
             storageBehavior.CheckResourceLevels();
             SetWarningStatus();
+            StartCoroutine(DelayedResourceCheck(storageBehavior));
         }
 
         public override void StopBehavior()
         {
             isFunctional = false;
         }
+
+
 
         private void ResourceDelivered(UnitStorageBehavior behavior, ResourceAmount amount)
         {
@@ -148,7 +157,7 @@ namespace HexGame.Units
         {
             CanIShoot();
 
-            if (!hasWarningIcon)
+            if (warningIconInstance == null)
             {
                 warningIconInstance = UnitManager.warningIcons.PullGameObject(this.transform.position, Quaternion.identity).GetComponent<WarningIcons>();
                 warningIconInstance.transform.SetParent(this.transform);

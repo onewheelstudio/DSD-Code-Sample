@@ -37,11 +37,13 @@ namespace HexGame.Units
 
         protected virtual void OnDisable()
         {
+            if(GameStateManager.LeavingScene)
+                return;
+
             Remove();
             ToggleBehaviorsOff();
             unitRemoved?.Invoke(this);
-            if (localStats.TryGetValue(Stat.shield, out float shield))
-                DayNightManager.toggleDay -= RenewShields;
+            DayNightManager.toggleDay -= RenewShields;
         }
 
 
@@ -50,7 +52,8 @@ namespace HexGame.Units
         {
             //clone the dictionary from the stats SO
             unitCreated?.Invoke(this);
-            localStats = new Dictionary<Stat, float>(stats.instanceStats);
+            if(!SaveLoadManager.Loading || this is EnemyUnit)
+                localStats = new Dictionary<Stat, float>(stats.instanceStats);
         }
 
         public virtual void RestoreHP(float amount)
@@ -64,7 +67,13 @@ namespace HexGame.Units
 
         public float GetHP()
         {
-            return localStats[Stat.hitPoints];
+            if (localStats.TryGetValue(Stat.hitPoints, out float hitPoints))
+                return hitPoints;
+            else
+            {
+                Debug.LogError($"No HP found for {this.gameObject.name}", this.gameObject);
+                return 0;
+            }
         }
         
         public float GetShield()
@@ -76,9 +85,12 @@ namespace HexGame.Units
         }
         protected void RenewShields(int obj)
         {
-            if(localStats.TryGetValue(Stat.shield, out float shield))
+            if(localStats == null)
+                return;
+
+            if(localStats.TryGetValue(Stat.shield, out float shield) && this.transform != null)
             {
-                if(localStats[Stat.shield] < stats[Stat.shield])
+                if(shield < stats[Stat.shield])
                     particleManager.GetRechargeParticles(this.transform.position + Vector3.up * 0.1f);
                 localStats[Stat.shield] = stats[Stat.shield];
             }
@@ -258,6 +270,11 @@ namespace HexGame.Units
         foundry = 36,
         nuclearPlant = 37,
         centrifuge = 38,
+        biomassHarvester = 39,
+        bioReactor = 40,
+        orbitalBarge = 41,
+        resourcePile = 42,
+        transportHub = 43,
     }
 
 

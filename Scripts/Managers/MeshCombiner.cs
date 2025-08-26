@@ -43,14 +43,14 @@ public class MeshCombiner : MonoBehaviour
     {
         HexTile.NewHexTile += HexTileAdded;
         HexTileManager.fillComplete += Combine;
-        LandmassCreator.generationComplete += Combine;
+        LandmassGenerator.generationComplete += Combine;
     }
 
     private void OnDisable()
     {
         HexTile.NewHexTile -= HexTileAdded;
         HexTileManager.fillComplete -= Combine;
-        LandmassCreator.generationComplete -= Combine;
+        LandmassGenerator.generationComplete -= Combine;
     }
 
     private void HexTileAdded(HexTile obj)

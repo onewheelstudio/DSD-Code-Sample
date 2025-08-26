@@ -13,7 +13,11 @@ public class TileBasedStatBoost : StatBoost
     {
         if(range == 0)
         {
-            if (HexTileManager.GetHexTileAtLocation(unit.transform.position).TileType == tileType)
+            HexTile tile = HexTileManager.GetHexTileAtLocation(unit.transform.position);
+            if (tile == null)
+                return 0;
+
+            if (tile.TileType == tileType)
                 return boost;
             else
                 return 0;

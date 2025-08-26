@@ -17,9 +17,8 @@ public class PlayNowCommunication : CommunicationBase
     {
         base.Complete();
 
-
-
         if (trigger)
             trigger.DoTrigger();
     }
+
 }

@@ -1,18 +1,25 @@
-using Sirenix.OdinInspector;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class ReputationManager : MonoBehaviour
+public class ReputationManager : MonoBehaviour, ISaveData
 {
-    [SerializeField, ShowInInspector] private static int reputation;
+    private static int reputation;
     public static int Reputation => reputation;
 
-    [SerializeField,ShowInInspector]private static CorporateTier tier = CorporateTier.NONE;
+    private static CorporateTier tier = CorporateTier.NONE;
     public static CorporateTier Tier => tier;
+
     public static event Action<CorporateTier> tierChanged;
     public static event Action<int> reputationChanged;
+
+    private void Awake()
+    {
+        reputation = 0;
+        tier = CorporateTier.NONE;
+        RegisterDataSaving();
+    }
 
     public static void ChangeReputation(int amount)
     {
@@ -48,6 +55,31 @@ public class ReputationManager : MonoBehaviour
             tierChanged?.Invoke(tier);
             MessagePanel.ShowMessage($"Corporate standing improved to {tier.ToString()}", null);
         }
+    }
+
+    private const string REP_SAVE_STRING = "RepData";
+    private const string CORP_TIER_STRING = "CorpTier";
+
+    public void RegisterDataSaving()
+    {
+        SaveLoadManager.RegisterData(this);
+    }
+
+    public void Save(string savePath, ES3Writer writer)
+    {
+        writer.Write<int>(REP_SAVE_STRING, reputation);
+        writer.Write<int>(CORP_TIER_STRING, (int)tier);
+    }
+
+    public IEnumerator Load(string loadPath, Action<string> postUpdateMessage)
+    {
+        if (ES3.KeyExists(REP_SAVE_STRING, loadPath))
+            reputation = ES3.Load<int>(REP_SAVE_STRING, 0);
+        if (ES3.KeyExists(CORP_TIER_STRING, loadPath))
+            tier = (CorporateTier)ES3.Load<int>(CORP_TIER_STRING, 0);
+
+        reputationChanged?.Invoke(reputation);
+        yield return null;
     }
 
     public enum CorporateTier

@@ -97,7 +97,6 @@ public class FogRevealer : MonoBehaviour
             htm.AddFogAgent(newNeighbors, this, false);
             htm.RemoveFogAgent(new List<Hex3>(revealedLocations), this, false);
             revealedLocations = new List<Hex3>(newNeighbors);
-            Debug.Log("Updating Positions: " + location);
         }
     }
 
@@ -115,14 +114,18 @@ public class FogRevealer : MonoBehaviour
             sightDistance = (int)rootUnit.GetStat(Stat.sightDistance);
 
         List<Hex3> newNeighbors = Hex3.GetNeighborsInRange(currentLocation, sightDistance);
-        for (int i = revealedLocations.Count - 1; i >= 0; i--)
+        if(revealedLocations != null)
         {
-            if (newNeighbors.Contains(revealedLocations[i]))
-                revealedLocations.RemoveAt(i);
+            for (int i = revealedLocations.Count - 1; i >= 0; i--)
+            {
+                if (newNeighbors.Contains(revealedLocations[i]))
+                    revealedLocations.RemoveAt(i);
+            }
         }
 
         htm.AddFogAgent(newNeighbors, this, false);
-        htm.RemoveFogAgent(new List<Hex3>(revealedLocations), this, false);
+        if(revealedLocations != null)
+            htm.RemoveFogAgent(new List<Hex3>(revealedLocations), this, false);
         revealedLocations = new List<Hex3>(newNeighbors);
     }
 

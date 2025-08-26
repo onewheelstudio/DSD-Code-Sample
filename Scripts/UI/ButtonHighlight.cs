@@ -31,12 +31,12 @@ public class ButtonHighlight : MonoBehaviour
 
     private void OnEnable()
     {
-        button.clicked += StopHighLight;
+        button.Clicked += StopHighLight;
     }
 
     private void OnDisable()
     {
-        button.clicked -= StopHighLight;
+        button.Clicked -= StopHighLight;
         DOTween.Kill(this,true);
     }
 
@@ -45,7 +45,7 @@ public class ButtonHighlight : MonoBehaviour
     {
         return;
 
-        sizeTween = block.DoScale(maxSize, highlightTime).SetLoops(-1, LoopType.Yoyo);
+        sizeTween = block.DoSize(maxSize, highlightTime).SetLoops(-1, LoopType.Yoyo);
         colorTween = block.DoBorderColor(highlightColor, highlightTime).SetLoops(-1, LoopType.Yoyo);
         widthTween = block.DoBorderWidth(maxBorderWidth, highlightTime).SetLoops(-1, LoopType.Yoyo);
     }

@@ -22,10 +22,6 @@ public class EnemyTargeting : MonoBehaviour
     {
         Unit.unitCreated += AddUnit;
         Unit.unitRemoved += RemoveUnit;
-
-        if (seeker == null)
-            seeker = this.gameObject.AddComponent<Seeker>();
-
         GetAllPlayerUnits();
     }
 
@@ -188,6 +184,18 @@ public class EnemyTargeting : MonoBehaviour
                     break;
                 case PlayerUnitType.collectionTower:
                     targetValue = 3f;
+                    break;
+                case PlayerUnitType.orbitalBarge:
+                    targetValue = 10f;
+                    break;
+                case PlayerUnitType.buildingSpot:
+                    if (target.IsPlaced())
+                        targetValue = 1;
+                    else
+                        targetValue = 0; //prevent enemies from chasing placeholders
+                    break;
+                case PlayerUnitType.resourcePile:
+                    targetValue = 0f;
                     break;
                 default:
                     targetValue = 1f;

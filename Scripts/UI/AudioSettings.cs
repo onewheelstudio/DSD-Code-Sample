@@ -47,6 +47,14 @@ public class AudioSettings : WindowPopup
             uiVolume.Value = ES3.Load<float>("uiVolume", GameConstants.preferencesPath, 0.75f);
             voiceVolume.Value = ES3.Load<float>("voiceVolume", GameConstants.preferencesPath, 1f);
         }
+        else
+        {
+            masterVolume.Value = 0.7f;
+            musicVolume.Value = 0.2f;
+            sfxVolume.Value = 0.7f;
+            uiVolume.Value = 0.75f;
+            voiceVolume.Value = 1f;
+        }
 
         CloseWindow();
     }

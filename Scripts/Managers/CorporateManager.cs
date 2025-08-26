@@ -1,6 +1,7 @@
 using HexGame.Grid;
 using HexGame.Resources;
 using HexGame.Units;
+using Sirenix.OdinInspector;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -26,6 +27,7 @@ public class CorporateManager : MonoBehaviour
         DayNightManager.toggleDay -= CheckInfantry;
     }
 
+    [Button]
     private void CheckInfantry(int dayNumber)
     {
         if(dayNumber > 20 || warningIndex > reinforcementWarnings.Count)
@@ -57,7 +59,12 @@ public class CorporateManager : MonoBehaviour
                     continue;
 
                 HexTile tile = HexTileManager.GetHexTileAtLocation(hex);
-                if(tile.TileType == HexTileType.mountain || tile.TileType == HexTileType.water)
+                if(tile == null)
+                    continue;
+                if(tile.TileType != HexTileType.grass 
+                    && tile.TileType != HexTileType.forest
+                    && tile.TileType != HexTileType.funkyTree
+                    && tile.TileType != HexTileType.aspen)
                     continue;
              
                 target = hex;
@@ -65,7 +72,7 @@ public class CorporateManager : MonoBehaviour
                 break;
             }
 
-            if(foundLocation == false)
+            if(!foundLocation)
                 return;
 
             newUnit = unitManager.InstantiateUnitByType(PlayerUnitType.infantry, target);

@@ -1,20 +1,15 @@
+using DG.Tweening;
 using Nova;
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using UnityEngine;
-using System.Collections;
-using Sirenix.Utilities;
-using NovaSamples.UIControls;
-using DG.Tweening;
-using System.Collections.ObjectModel;
 
 [RequireComponent(typeof(ClipMask))]
-public class DirectiveMenu : MonoBehaviour
+public class DirectiveMenu : MonoBehaviour, ISaveData
 {
-    [SerializeField] private Button openButton;
-    private Animator openButtonAnimator;
-    private UIBlock2D openButtonBlock;
     private ClipMask clipMask;
     [SerializeField] private ClipMask directiveClipMask;
     [SerializeField] private List<DirectiveBase> directiveList = new List<DirectiveBase>();
@@ -27,23 +22,35 @@ public class DirectiveMenu : MonoBehaviour
     public static event Action<float> directiveTimer;
     private WaitForSeconds delay = new WaitForSeconds(1f);
 
-    public static event Action<DirectiveQuest> questAdded;
-    private int maxQuests = 2;
-    public int MaxQuests => maxQuests;
+    public static event Action<DirectiveQuest> QuestAdded;
+    public static event Action<DirectiveBase> DirectiveAdded;
+
+
+    private SupplyShipManager supplyShipManager;
+    public int MaxQuests
+    {
+        get
+        {
+            if(supplyShipManager == null)
+                supplyShipManager = FindFirstObjectByType<SupplyShipManager>();
+
+            return Mathf.Max(2, supplyShipManager.SupplyShipCount + 1);
+        }
+    }
+
+    public bool LoadComplete => loadComplete;
+    private bool loadComplete = false;
 
     private Dictionary<DirectiveQuest, QuestTimerInfo> timerInfo = new Dictionary<DirectiveQuest, QuestTimerInfo>();
 
     private void Awake()
     {
         clipMask = GetComponent<ClipMask>();
-        openButtonBlock = openButton.GetComponent<UIBlock2D>();
-        openButtonAnimator = openButton.GetComponent<Animator>();
+        RegisterDataSaving();
     }
 
     private void OnEnable()
     {
-        LockDirectiveButton.lockDirectiveButton += ButtonOff;
-        UnlockStockMarketButton.unlockStockMarketButton += ButtonOn;
         DirectiveQuest.questCompleted += QuestComplete;
 
         directiveDisplay.AddDataBinder<string, DirectiveGoalVisuals>(DisplayDirectives);
@@ -57,8 +64,6 @@ public class DirectiveMenu : MonoBehaviour
 
     private void OnDisable()
     {
-        LockDirectiveButton.lockDirectiveButton -= ButtonOff;
-        UnlockStockMarketButton.unlockStockMarketButton -= ButtonOn;
         foreach (var directive in directiveList)
         {
             directive.directiveUpdated -= DirectiveUpdated;
@@ -82,7 +87,7 @@ public class DirectiveMenu : MonoBehaviour
             for(int i = timerInfo.Count - 1; i >= 0; i--)
             {
                 var timer = timerInfo.ElementAt(i);
-                timer.Value.timeRemaining -= 1f;
+                timer.Value.timeRemaining -= 1f * GameConstants.GameSpeed;
                 timer.Value.visuals.SetTime(timer.Value.timeRemaining, timer.Value.timeRemaining / timer.Value.quest.TimeLimitSeconds);
                 if (timer.Value.timeRemaining <= 0f)
                     timer.Value.quest.Failed();
@@ -106,10 +111,10 @@ public class DirectiveMenu : MonoBehaviour
 
         target.Initialize();
         target.UpdateDirective(evt.UserData);
-        target.ToggleTimer(evt.UserData.UseTimeLimit);
+        target.ToggleTimer(evt.UserData.UseTimeLimit && !evt.UserData.IsFailed);
         target.cancelButton.gameObject.SetActive(!evt.UserData.isCorporate);
 
-        if(evt.UserData.UseTimeLimit)
+        if(evt.UserData.UseTimeLimit && !evt.UserData.IsFailed)
             StartQuestTimer(evt.UserData, target);
     }
 
@@ -137,9 +142,9 @@ public class DirectiveMenu : MonoBehaviour
             float width = target.container.Size.Value.x;
             Vector3 position = target.container.Position.Value - new Vector3(width, 0, 0);
             target.container.TrySetLocalPosition(position);
-            target.container.DoPositionX(0, 0.25f).SetEase(Ease.InOutCirc);
+            target.container.DoPositionX(0, 0.25f).SetUpdate(true).SetEase(Ease.InOutCirc);
             target.clipMask.SetAlpha(0f);
-            target.clipMask.DoFade(1f, 0.25f).SetEase(Ease.InOutCirc);
+            target.clipMask.DoFade(1f, 0.25f).SetUpdate(true).SetEase(Ease.InOutCirc);
         }
 
         target.directiveText.Text = evt.UserData;
@@ -158,13 +163,19 @@ public class DirectiveMenu : MonoBehaviour
         if (forceAdd && this.assignedQuest != null)
             return false; //we already have an assigned quest
 
+        if(!quest.CanBeAssigned())
+        {
+            Debug.LogError($"{quest.name} quest cannot be assigned.");
+            return false;
+        }
+
         int assignedCount = this.assignedQuest != null ? 1 : 0;
 
         int nonCorpQuests = questList.Count(q => !q.isCorporate);
 
-        if (!forceAdd && nonCorpQuests >= maxQuests + assignedCount)
+        if (!forceAdd && nonCorpQuests >= MaxQuests + assignedCount)
         {
-            MessagePanel.ShowMessage($"Maximum number of Directives is {maxQuests}", null);
+            MessagePanel.ShowMessage($"Maximum number of Directives is {MaxQuests}", null);
             //ButtonOff();
             return false;
         }
@@ -180,14 +191,24 @@ public class DirectiveMenu : MonoBehaviour
         else
             questList.Add(quest);
 
-        //have we added our last quest?
-        //if (questList.Count >= maxQuests)
-        //    ButtonOff();
-
+        //questDisplay.SetDataSource(questList);
+        questList = SortQuests(questList);
         questDisplay.SetDataSource(questList);
-        questAdded?.Invoke(quest);
+        QuestAdded?.Invoke(quest);
         SFXManager.PlaySFX(SFXType.newDirective);
         return true;
+    }
+
+    /// <summary>
+    /// functions that sorts the quest list. Corporate quests first, autotrader next, then all others.
+    /// </summary>
+    /// <param name="questList"></param>
+    private List<DirectiveQuest> SortQuests(List<DirectiveQuest> questList)
+    {
+        return questList.OrderByDescending(q => q.isCorporate)
+                        .ThenByDescending(q => q.isAutoTrader)
+                        //.ThenByDescending(q => !q.isCorporate && !q.isAutoTrader)
+                        .ToList();
     }
 
     public void AddDirective(DirectiveBase directive)
@@ -199,17 +220,17 @@ public class DirectiveMenu : MonoBehaviour
         directive.directiveUpdated += DirectiveUpdated;
         directiveList.Add(directive);
         directiveAdded = true;
+        DirectiveAdded?.Invoke(directive);
 
         directiveDisplay.SetDataSource(GetDirectiveStrings(directiveList));
         directiveAdded = false;
         DOTween.Kill(directiveClipMask);
-        //Sequence blinkDirectives = DOTween.Sequence();
-        //blinkDirectives.Append(directiveClipMask.DoFade(0.25f, 1f).SetEase(Ease.InOutCirc));
-        //blinkDirectives.Append(directiveClipMask.DoFade(1f, 1f).SetEase(Ease.InOutCirc));
-        //blinkDirectives.SetLoops(5, LoopType.Yoyo);
+
+
         directiveClipMask.DoFade(0.1f, 1f)
                          .SetEase(Ease.Linear)
                          .SetLoops(10, LoopType.Yoyo)
+                         .SetUpdate(true)
                          .OnComplete(() => directiveClipMask.SetAlpha(1f));
 
     }
@@ -220,11 +241,13 @@ public class DirectiveMenu : MonoBehaviour
         quest.directiveUpdated -= DirectiveUpdated;
         questDisplay.SetDataSource(questList);
 
-        if(quest.UseTimeLimit)
+        QuestTimeExpired(quest);
+    }
+
+    public void QuestTimeExpired(DirectiveQuest quest)
+    {
+        if (quest.UseTimeLimit)
             timerInfo.Remove(quest);
-        
-        //if (questList.Count < maxQuests)
-        //    ButtonOn();
     }
 
     public void RemoveDirective(DirectiveBase directive)
@@ -270,8 +293,13 @@ public class DirectiveMenu : MonoBehaviour
             playComplete = true;
             directive.directiveUpdated -= DirectiveUpdated;
         }
-        directiveDisplay.SetDataSource(GetDirectiveStrings(directiveList));
-        questDisplay.SetDataSource(questList);
+        if(directiveDisplay != null)
+            directiveDisplay.SetDataSource(GetDirectiveStrings(directiveList));
+        if(questDisplay != null)
+            questDisplay.SetDataSource(questList);
+
+        if (SaveLoadManager.Loading)
+            return;
 
         if (playComplete)
             SFXManager.PlaySFX(SFXType.DirectiveComplete);
@@ -288,23 +316,6 @@ public class DirectiveMenu : MonoBehaviour
             timerInfo.Remove(completedQuest);
     }
 
-    private void ButtonOff()
-    {
-        openButton.GetComponent<Interactable>().ClickBehavior = ClickBehavior.None;
-        openButtonBlock.Color = ColorManager.GetColor(ColorCode.buttonGreyOut);
-        openButtonAnimator.SetTrigger("ButtonOff");
-    }
-
-    private void ButtonOn()
-    {
-        Interactable interactable = openButton.GetComponent<Interactable>();
-        if (interactable.ClickBehavior == ClickBehavior.OnRelease)
-            return; //we're already on
-
-        openButton.GetComponent<Interactable>().ClickBehavior = ClickBehavior.OnRelease;
-        openButtonAnimator.SetTrigger("Highlight");
-    }
-
     public ReadOnlyCollection<DirectiveQuest> GetQuestList()
     {
         return questList.AsReadOnly();
@@ -313,7 +324,105 @@ public class DirectiveMenu : MonoBehaviour
     public bool CanAddQuest()
     {
         int nonCorpQuests = questList.Count(q => !q.isCorporate);
-        return nonCorpQuests < maxQuests;
+        return nonCorpQuests < MaxQuests;
+    }
+
+    private const string DIRECTIVE_QUEST_DATA = "DirectiveQuestData";
+    private const string DIRECTIVE_DATA = "DirectiveData";
+    public void RegisterDataSaving()
+    {
+        //needs to happen after units are loaded
+        SaveLoadManager.RegisterData(this, 1000);
+    }
+
+    public void Save(string savePath, ES3Writer writer)
+    {
+        writer.Write<List<DirectiveQuest>>(DIRECTIVE_QUEST_DATA, questList);
+        writer.Write<List<DirectiveBase>>(DIRECTIVE_DATA, directiveList);
+    }
+
+    public IEnumerator Load(string loadPath, Action<string> postUpdateMessage)
+    {
+        if(ES3.KeyExists(DIRECTIVE_QUEST_DATA, loadPath))
+        {
+            var tempQuestList = ES3.Load<List<DirectiveQuest>>(DIRECTIVE_QUEST_DATA, loadPath, new List<DirectiveQuest>());
+            tempQuestList = SortQuests(tempQuestList);
+
+            //work backward through the list in case we remove any
+            for (int i = tempQuestList.Count - 1; i >= 0; i--)
+            {
+                if(ListContainsDirective(questList, tempQuestList[i]))
+                    continue; //we already have this directive in the list
+
+                questList.Add(tempQuestList[i]);
+                postUpdateMessage?.Invoke($"Sorting Directives {i + 1} of {tempQuestList.Count}");
+                tempQuestList[i].Initialize();
+                tempQuestList[i].directiveUpdated += DirectiveUpdated;
+                QuestAdded?.Invoke(tempQuestList[i]);
+                DirectiveUpdated(tempQuestList[i]);
+            }
+        }
+
+        yield return null;
+
+        if (ES3.KeyExists(DIRECTIVE_DATA, loadPath))
+        {
+            var tempDirectiveList = ES3.Load<List<DirectiveBase>>(DIRECTIVE_DATA, loadPath, new List<DirectiveBase>());
+
+            //work backward through the list in case we remove any
+            for (int i = tempDirectiveList.Count - 1; i >= 0; i--)
+            {
+                if(ListContainsDirective(directiveList, tempDirectiveList[i]))
+                    continue; //we already have this directive in the list
+
+                directiveList.Add(tempDirectiveList[i]);
+                tempDirectiveList[i].Initialize();
+                tempDirectiveList[i].directiveUpdated += DirectiveUpdated;
+                DirectiveAdded?.Invoke(tempDirectiveList[i]);
+                DirectiveUpdated(tempDirectiveList[i]);
+            }
+        }
+        yield return null;
+    }
+
+    private bool ListContainsDirective(List<DirectiveBase> list, DirectiveBase directive)
+    {
+        if(list.Contains(directive))
+            return true;
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (list[i].DisplayTestToString() == directive.DisplayTestToString())
+                return true;
+        }
+
+        return false;
+    }
+    
+    private bool ListContainsDirective(List<DirectiveQuest> list, DirectiveQuest directive)
+    {
+        if(list.Contains(directive))
+            return true;
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (list[i].DisplayTestToString() == directive.DisplayTestToString())
+                return true;
+        }
+
+        return false;
+    }
+
+    public void ProjectFailed()
+    {
+        foreach (var quest in questList)
+        {
+            if (quest is SpecialProjectDirective spd && !spd.IsComplete().All(c => c == true))
+            {
+                spd.Failed();
+                break;
+            }
+        }
     }
 
     public class QuestTimerInfo

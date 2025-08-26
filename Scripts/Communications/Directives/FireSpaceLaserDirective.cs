@@ -14,10 +14,11 @@ public class FireSpaceLaserDirective : DirectiveBase
 
     public override void Initialize()
     {
-        numberOfShots = 0;
+        base.Initialize();
+        //numberOfShots = 0;
         if(OnStartCommunication != null)
             CommunicationMenu.AddCommunication(OnStartCommunication);
-        PlayerAttacks.SpaceLaserFired += SpaceLaserFired;
+        SpaceLaser.SpaceLaserFired += SpaceLaserFired;
     }
 
     public override List<bool> IsComplete()
@@ -29,7 +30,7 @@ public class FireSpaceLaserDirective : DirectiveBase
     {
         if (OnCompleteCommunication != null)
             CommunicationMenu.AddCommunication(OnCompleteCommunication);
-        PlayerAttacks.SpaceLaserFired -= SpaceLaserFired;
+        SpaceLaser.SpaceLaserFired -= SpaceLaserFired;
     }
 
     private void SpaceLaserFired()

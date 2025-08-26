@@ -13,7 +13,8 @@ MonoBehaviour:
   m_Name: GameSettings
   m_EditorClassIdentifier: 
   isDemo: 1
-  maxTierForDemo: 2
-  isEarlyAccess: 0
-  maxTierForEarlyAccess: 10
-  isPlayTest: 0
+  maxTierForDemo: 1
+  isEarlyAccess: 1
+  maxTierForEarlyAccess: 3
+  earlyAccessGameScene: {fileID: 102900000, guid: e8bd7ba38c7ecd34e93faf32169d9102, type: 3}
+  demoTypes: 000000000f000000070000001a0000000600000005000000180000001f000000080000000a000000170000001e000000100000002b000000

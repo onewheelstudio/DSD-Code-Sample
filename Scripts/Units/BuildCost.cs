@@ -20,6 +20,21 @@ namespace HexGame.Resources
         {
             return unitType;
         }
+
+        public List<ResourceAmount> GetCosts()
+        {
+            if(UnitManager.UseLowCost)
+            {
+               List<ResourceAmount> lowCosts = new List<ResourceAmount>();
+                foreach (var cost in costs)
+                {
+                    lowCosts.Add(new ResourceAmount(cost.type, 5));
+                }
+                return lowCosts;
+            }
+
+            return costs;
+        }
     }
 }
 

@@ -49,7 +49,7 @@ public static class HelperFunctions
     /// <returns></returns>
     public static int Max(this Hex3 hex3)
     {
-        return Mathf.Max(Mathf.Abs(hex3.q), Mathf.Abs(hex3.r), Mathf.Abs(hex3.s));
+        return Mathf.Max(Mathf.Abs(hex3.q), Mathf.Max(Mathf.Abs(hex3.r), Mathf.Abs(hex3.s)));
     }
 
     public static int Min(this Hex3 hex3)
@@ -258,14 +258,17 @@ public static class HelperFunctions
         return raysastResults;
     }
 
-    public static DG.Tweening.Tween DOColor(this Nova.UIBlock2D uIBlock2D, Color finalColor, float time)
+    public static Tween DOColor(this UIBlock2D uIBlock2D, Color finalColor, float time)
     {
-        return DG.Tweening.DOTween.To(() => uIBlock2D.Color, x => uIBlock2D.Color = x, finalColor, time);
+        Tween tween = DOTween.To(() => uIBlock2D.Color, x => uIBlock2D.Color = x, finalColor, time);
+        tween.SetUpdate(true);
+
+        return tween;
     }
 
     public static string ToNiceString(this HexGame.Resources.ResourceType value, bool plural = true)
     {
-        if(plural)
+        if (plural)
             return value.ToNiceStringPlural();
 
         switch (value)
@@ -287,7 +290,7 @@ public static class HelperFunctions
             case ResourceType.Terrene:
                 return "Terrene";
             case ResourceType.AlOre:
-                return "Alunimum Ore";
+                return "Aluminum Ore";
             case ResourceType.UOre:
                 return "Uranium Ore";
             case ResourceType.Oil:
@@ -303,19 +306,19 @@ public static class HelperFunctions
             case ResourceType.FeIngot:
                 return "Iron";
             case ResourceType.AlIngot:
-                return "Alunimum";
+                return "Aluminum";
             case ResourceType.TiIngot:
                 return "Titanium";
             case ResourceType.UIngot:
                 return "Uranium";
             case ResourceType.SteelPlate:
                 return "Steel Plate";
-            case ResourceType.SteelCog:
-                return "Steel Cog";
+            case ResourceType.IronCog:
+                return "Iron Cog";
             case ResourceType.AlPlate:
-                return "Alunimum Plate";
+                return "Aluminum Plate";
             case ResourceType.AlCog:
-                return "Alunimum Cog";
+                return "Aluminum Cog";
             case ResourceType.Hydrogen:
                 break;
             case ResourceType.Nitrogen:
@@ -324,9 +327,9 @@ public static class HelperFunctions
                 break;
             case ResourceType.AmmoniumNitrate:
                 return "Ammonium Nitrate";
-            case ResourceType.cuOre:
-                return "Coppper Ore";
-            case ResourceType.cuIngot:
+            case ResourceType.CuOre:
+                return "Copper Ore";
+            case ResourceType.CuIngot:
                 return "Copper";
             case ResourceType.CannedFood:
                 return "Canned Food";
@@ -350,6 +353,10 @@ public static class HelperFunctions
                 return "Uranium Shell";
             case ResourceType.SulfuricAcid:
                 return "Sulfuric Acid";
+            case ResourceType.Biomass:
+                break;
+            case ResourceType.TerraFluxCell:
+                return "Terraflux Fuel Cell";
             default:
                 break;
         }
@@ -359,7 +366,7 @@ public static class HelperFunctions
 
     private static string ToNiceStringPlural(this HexGame.Resources.ResourceType value)
     {
-        switch(value)
+        switch (value)
         {
 
             case ResourceType.Workers:
@@ -368,18 +375,20 @@ public static class HelperFunctions
                 return "Fuel Cells";
             case ResourceType.SteelPlate:
                 return "Steel Plates";
-            case ResourceType.SteelCog:
-                return "Steel Cogs";
+            case ResourceType.IronCog:
+                return "Iron Cogs";
             case ResourceType.AlPlate:
-                return "Alunimum Plates";
+                return "Aluminum Plates";
             case ResourceType.AlCog:
-                return "Alunimum Cogs";
+                return "Aluminum Cogs";
             case ResourceType.FuelRod:
                 return "Fuel Rods";
             case ResourceType.ExplosiveShell:
                 return "Explosive Shells";
             case ResourceType.UraniumShells:
                 return "Uranium Shells";
+            case ResourceType.TerraFluxCell:
+                return "Terraflux Fuel Cells";
             default:
                 return ToNiceString(value, false);
         }
@@ -390,7 +399,7 @@ public static class HelperFunctions
         switch (value)
         {
             case HexGame.Units.PlayerUnitType.hq:
-                return "HQ";
+                return "Headquarters";
             case HexGame.Units.PlayerUnitType.doubleTower:
                 return "Laser Tower II";
             case HexGame.Units.PlayerUnitType.artillery:
@@ -434,7 +443,7 @@ public static class HelperFunctions
             case HexGame.Units.PlayerUnitType.bomberBase:
                 return "Bomber Base";
             case HexGame.Units.PlayerUnitType.infantry:
-                return "Infantry";
+                return "Scout";
             case HexGame.Units.PlayerUnitType.singleTower:
                 return "Laser Tower I";
             case HexGame.Units.PlayerUnitType.barracks:
@@ -467,13 +476,23 @@ public static class HelperFunctions
                 return "Sand Pit";
             case PlayerUnitType.atmosphericCondenser:
                 return "Atmospheric Condenser";
+            case PlayerUnitType.biomassHarvester:
+                return "Harvester";
+            case PlayerUnitType.bioReactor:
+                return "Bio Reactor";
+            case PlayerUnitType.orbitalBarge:
+                return "Orbital Lift";
+            case PlayerUnitType.transportHub:
+                return "Transport Hub";
+            case PlayerUnitType.resourcePile:
+                return "Resource Pile";
             default:
                 break;
         }
 
         return value.ToString();
-    } 
-    
+    }
+
     public static string ToNiceStringPlural(this HexGame.Units.PlayerUnitType value)
     {
         switch (value)
@@ -484,7 +503,7 @@ public static class HelperFunctions
                 return "Laser Tower II";
             case HexGame.Units.PlayerUnitType.tank:
                 return "Tanks";
-              case HexGame.Units.PlayerUnitType.farm:
+            case HexGame.Units.PlayerUnitType.farm:
                 return "Farms";
             case HexGame.Units.PlayerUnitType.mine:
                 return "Mines";
@@ -550,6 +569,16 @@ public static class HelperFunctions
                 return "Sand Pits";
             case PlayerUnitType.atmosphericCondenser:
                 return "Atmospheric Condensers";
+            case PlayerUnitType.biomassHarvester:
+                return "Harvesters";
+            case PlayerUnitType.bioReactor:
+                return "Bio Reactors";
+            case PlayerUnitType.orbitalBarge:
+                return "Orbital Lifts";
+            case PlayerUnitType.infantry:
+                return "Scouts";
+            case PlayerUnitType.transportHub:
+                return "Transport Hubs";
         }
 
         return value.ToNiceString();
@@ -641,15 +670,15 @@ public static class HelperFunctions
                 return "Forest";
             case HexTileType.water:
                 return "Water";
-            case HexTileType.alOre: 
-                return "Alunimum Ore";
-            case HexTileType.gas:   
+            case HexTileType.alOre:
+                return "Aluminum Ore";
+            case HexTileType.gas:
                 return "Gas";
-            case HexTileType.tiOre: 
+            case HexTileType.tiOre:
                 return "Titanium Ore";
             case HexTileType.uOre:
                 return "Uranium Ore";
-            case HexTileType.oil:   
+            case HexTileType.oil:
                 return "Oil";
             case HexTileType.sand:
                 return "Sand";
@@ -657,6 +686,8 @@ public static class HelperFunctions
                 return "Aspen Forest";
             case HexTileType.cuOre:
                 return "Copper Ore";
+            case HexTileType.funkyTree:
+                return "Funky Tree";
             default:
                 break;
         }
@@ -753,7 +784,7 @@ public static class HelperFunctions
             return null;
 
         List<Tween> tweens = new List<Tween>();
-        Tween tween = uiBlock.DoScale(Vector3.one * calloutSize, calloutTime)
+        Tween tween = uiBlock.DoSize(Vector3.one * calloutSize, calloutTime)
                             .SetLoops(-1, LoopType.Yoyo);
         tweens.Add(tween);
 
@@ -762,5 +793,24 @@ public static class HelperFunctions
         tweens.Add(tween);
 
         return tweens;
+    }
+
+    public static List<ResourceAmount> CombineLists(this List<ResourceAmount> list1, List<ResourceAmount> list2)
+    {
+        List<ResourceAmount> newList = new List<ResourceAmount>(list1);
+
+        for (int i = 0; i < newList.Count; i++)
+        {
+            for (int j = 0; j < list2.Count; j++)
+            {
+                if (newList[i].type == list2[j].type)
+                {
+                    newList[i] += list2[j];
+                    break;
+                }
+            }
+        }
+
+        return list1;
     }
 }

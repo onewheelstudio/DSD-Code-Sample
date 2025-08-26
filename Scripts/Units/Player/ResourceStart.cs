@@ -1,20 +1,18 @@
-using System.Collections;
+using HexGame.Resources;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
-using HexGame.Resources;
-using Sirenix.OdinInspector;
-using System.Linq;
-using System;
 
 namespace HexGame.Units
 {
-    [RequireComponent(typeof(GlobalStorageBehavior))]
+    [RequireComponent(typeof(TransportStorageBehavior))]
     public class ResourceStart : UnitBehavior
     {
 
         [SerializeField] 
         private List<PlayerUnitType> starterBuildings = new List<PlayerUnitType>();
         private UnitManager unitManager;
+        private PlayerResources playerResources;
 
         [SerializeField]
         private List<HexGame.Resources.ResourceAmount> resources = new List<HexGame.Resources.ResourceAmount>();
@@ -30,7 +28,13 @@ namespace HexGame.Units
             if(isInitialized) //lets only do this once
                 return;
 
-            unitManager ??= FindObjectOfType<UnitManager>();
+            unitManager ??= FindFirstObjectByType<UnitManager>();
+            playerResources ??= FindFirstObjectByType<PlayerResources>();
+
+            if (SaveLoadManager.Loading)
+                return;
+
+            TransportStorageBehavior storage = this.GetComponent<TransportStorageBehavior>();
 
             foreach (var unit in starterBuildings)
             {
@@ -39,16 +43,26 @@ namespace HexGame.Units
                     if (resource.type == HexGame.Resources.ResourceType.Workers)
                         workersAdded?.Invoke(resource.amount);
                     else
-                        this.GetComponent<GlobalStorageBehavior>().StoreResource(resource);
+                    {
+                        storage.AddAllowedResource(resource.type);
+                        storage.AddResourceForPickup(resource);
+                        playerResources.AddResource(resource);
+                    }
                 }
             }
 
             foreach (var resource in resources)
             {
                 if (resource.type == HexGame.Resources.ResourceType.Workers)
+                {
                     workersAdded?.Invoke(resource.amount);
-                else
-                    this.GetComponent<GlobalStorageBehavior>().StoreResource(resource);
+                    continue;
+                }
+
+                if(resource.type != Resources.ResourceType.Workers)
+                    storage.AddAllowedResource(resource.type);
+                storage.AddResourceForPickup(resource);
+                playerResources.AddResource(resource);
             }
 
             initialResourcesAdded?.Invoke();

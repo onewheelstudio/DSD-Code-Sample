@@ -26,14 +26,14 @@ public class MarketResourceItemInfo : ButtonVisuals
         if(value == null)
             return;
 
-        value.Text = Round(market.displayPrice).ToString();
-        if (market.displayPrice > market.basePrice * 1.2f)
+        value.Text = Round(market.DisplayPrice).ToString();
+        if (market.DisplayPrice > market.basePrice * 1.2f)
         {
             value.Color = ColorManager.GetColor(ColorCode.green);
             upArrow.gameObject.SetActive(true);
             downArrow.gameObject.SetActive(false);
         }
-        else if (market.displayPrice < market.basePrice * 0.8f)
+        else if (market.DisplayPrice < market.basePrice * 0.8f)
         {
             value.Color = ColorManager.GetColor(ColorCode.red);
             upArrow.gameObject.SetActive(false);

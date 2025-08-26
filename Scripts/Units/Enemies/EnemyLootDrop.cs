@@ -3,24 +3,22 @@ using HexGame.Units;
 using OWS.ObjectPooling;
 using System;
 using System.Linq;
+using UnityEditor;
 using UnityEngine;
-
 public class EnemyLootDrop : UnitBehavior
 {
-
     [Range(0f, 1f)]
     [SerializeField]
     private float chanceToSpawnLoot = 0.25f;
-    [SerializeField]
-    private GameObject lootPrefab;
-    private static ObjectPool<PoolObject> lootPool;
-    public static event Action<EnemyLootDrop, GameObject> enemyLootDropped;
     private static bool initialAmountDropped = false;
+    private EnemyUnit enemyUnit;
+    public static event Action<Vector3> requestLootDrop;
 
     private void Awake()
     {
-        if (lootPool == null)
-            lootPool = new ObjectPool<PoolObject>(lootPrefab);
+        enemyUnit = GetComponent<EnemyUnit>();
+        enemyUnit ??= GetComponent<EnemySubUnit>().ParentUnit;
+        enemyUnit.ThisUnitDied += SpawnLoot;
     }
 
     public override void StartBehavior()
@@ -33,10 +31,10 @@ public class EnemyLootDrop : UnitBehavior
         isFunctional = false;
     }
 
-    private void OnDisable()
+    private void OnDestroy()
     {
-        if (Application.isPlaying)
-            SpawnLoot();
+        enemyUnit.ThisUnitDied -= SpawnLoot;
+        initialAmountDropped = false;
     }
 
     private void SpawnLoot()
@@ -44,13 +42,11 @@ public class EnemyLootDrop : UnitBehavior
         if (!CanSpawnLoot())
             return;
 
-        GameObject loot = lootPool.Pull(new Vector3(this.transform.position.x, 0.25f, this.transform.position.z), this.transform.rotation).gameObject;
-        enemyLootDropped?.Invoke(this, loot);
+        requestLootDrop?.Invoke(this.transform.position);
     }
 
     private bool CanSpawnLoot()
     {
-
         if (!StateOfTheGame.gameStarted)
             return false;
 

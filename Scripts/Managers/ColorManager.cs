@@ -10,6 +10,9 @@ public class ColorManager : MonoBehaviour
         if (_instance == null)
             _instance = FindObjectOfType<ColorManager>();
 
+        if(_instance == null)
+            return Color.white;
+
         return _instance.colorData.GetColor(colorCode);
     }
 }

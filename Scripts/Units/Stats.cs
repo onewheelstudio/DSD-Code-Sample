@@ -53,6 +53,7 @@ public class Stats : SerializedScriptableObject, IUpgradeable
             Stat.reloadTime => 0.5f / GameConstants.GameSpeed,
             Stat.reputation => 25f,
             Stat.shield => 0f,
+            Stat.workers => 0f,
             _ => 1f,
         };
     }
@@ -86,8 +87,9 @@ public class Stats : SerializedScriptableObject, IUpgradeable
 
     private float GetLocalUpgrades(Stat stat, float baseValue)
     {
-        foreach (var upgrade in appliedUpgrades)
+        for (int i = 0; i < appliedUpgrades.Count; i++)
         {
+            StatsUpgrade upgrade = appliedUpgrades[i];
             if (!upgrade.upgradeToApply.TryGetValue(stat, out float upgradeValue))
                 continue;
 
@@ -101,15 +103,17 @@ public class Stats : SerializedScriptableObject, IUpgradeable
     }
     private static float GetGlobalStatUpgrade(Stat stat, float value)
     {
-        foreach (var globalUpgrade in globalUpgrades)
+        for (int i = 0; i < globalUpgrades.Count; i++)
         {
+            GlobalUpgrade globalUpgrade = globalUpgrades[i];
             if (globalUpgrade.statType == stat && !globalUpgrade.isPercent)
                 value += globalUpgrade.statValue;
         }
 
         //apply percent upgrades at the end
-        foreach (var globalUpgrade in globalUpgrades)
+        for (int i = 0; i < globalUpgrades.Count; i++)
         {
+            GlobalUpgrade globalUpgrade = globalUpgrades[i];
             if (globalUpgrade.statType == stat && globalUpgrade.isPercent)
                 value *= (1f + globalUpgrade.statValue / 100f);
         }

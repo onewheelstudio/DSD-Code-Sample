@@ -6,7 +6,7 @@ using System;
 namespace NovaSamples.UIControls
 {
     /// <summary>
-    /// A UI control which reacts to user input and flips an underlying bool to track a <see cref="ToggledOn"/> state as it is clicked.
+    /// A UI control which reacts to user input and flips an underlying bool to track a <see cref="ToggledOn"/> state as it is Clicked.
     /// </summary>
     public class Toggle : UIControl<ToggleVisuals>
     {

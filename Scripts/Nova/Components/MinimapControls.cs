@@ -10,7 +10,7 @@ namespace NovaSamples.UIControls
     /// </summary>
     public class MinimapControls : UIControl<MiniMapVisuals>
     {
-        [Tooltip("Event fired when the button is clicked.")]
+        [Tooltip("Event fired when the button is Clicked.")]
         public System.Action Clicked;
         [SerializeField] private Transform canvas;
         [SerializeField] private Camera overlayCamera;

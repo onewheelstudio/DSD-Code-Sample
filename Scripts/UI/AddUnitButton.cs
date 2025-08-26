@@ -22,6 +22,21 @@ public class AddUnitButton : MonoBehaviour, IHaveResources
     public bool CanPlace => canPlace;
     [SerializeField] private bool hasLimit = false;
     [SerializeField, ShowIf("@hasLimit")] private int limit = 1;
+    [SerializeField, ShowIf("@hasLimit")] private bool limitForTutorial = false;
+    private bool isTutorial
+    {
+        get
+        {
+            if (SaveLoadManager.Loading || SaveLoadManager.loadedGame)
+                return false;
+
+            if(StateOfTheGame.gameStarted && StateOfTheGame.tutorialSkipped)
+                return false;
+
+            return true;
+        }
+    }
+
     [OnValueChanged("GetButtons")]
     [SerializeField] private List<PlayerUnitType> requiredToUnlock = new List<PlayerUnitType>();
     List<AddUnitButton> requiredButtons;
@@ -42,64 +57,92 @@ public class AddUnitButton : MonoBehaviour, IHaveResources
         interactable = this.GetComponent<Interactable>();
         button = this.GetComponent<Button>();
         buildingSelectWindow = this.GetComponentInParent<BuildingSelectWindow>();
-        um = FindObjectOfType<UnitManager>();
+        um = FindFirstObjectByType<UnitManager>();
         um.RegisterUnitButton(this);
         text = this.GetComponentInChildren<TextBlock>(true);
         interactable.enabled = canPlace;
         this.gameObject.SetActive(canPlace);
-        unitSelectionManager ??= FindObjectOfType<UnitSelectionManager>();
+        unitSelectionManager ??= FindFirstObjectByType<UnitSelectionManager>();
         LoadUnitInfo();
     }
 
     private void OnEnable()
     {
         text.Text = _unitType.ToNiceString();
-        button.clicked += AddUnit;
-        if (hasLimit)
+        button.Clicked += AddUnit;
+        if (limitForTutorial && isTutorial)
+        {
+            DayNightManager.toggleDay += TurnOffTutorialLimit;
+            StateOfTheGame.TutorialSkipped += TurnOffTutorialLimit;
+        }
+        else if(limitForTutorial && !isTutorial)
+        {
+            TurnOffTutorialLimit();
+        }
+        else if (hasLimit && !limitForTutorial)
             IncreaseLimitUpgrade.OnLimitIncreased += OnLimitIncreased;
 
         List<ResourceAmount> buildCosts = um.GetUnitCost(unitType);
         if(buildCosts == null || buildCosts.Count == 0)
         {
+            buildCosts = new();
             buildCosts.Add(new ResourceAmount(ResourceType.FeOre, 0));
             buildCosts.Add(new ResourceAmount(ResourceType.Energy, 0));
         }
         DisplayBuildCost(buildCosts);
 
-        UnitManager.unitPlacementStarted += UnitPlaced;
-        UnitManager.unitPlaced += UnitPlaced;
-        UnitManager.unitPlacementFinished += UnitFinished;
+        if(hasLimit)
+        {
+            UnitManager.unitPlacementStarted += UnitPlaced;
+            UnitManager.unitPlaced += UnitChanged;
+            UnitManager.unitPlacementFinished += UnitFinished;
+            PlayerUnit.unitRemoved += UnitChanged;
+        }
     }
-
-
 
     private void OnDisable()
     {
-        button.clicked -= AddUnit;
-        if (hasLimit)
+        button.Clicked -= AddUnit;
+        if (hasLimit && limitForTutorial && isTutorial)
+        {
+            DayNightManager.toggleDay -= TurnOffTutorialLimit;
+            StateOfTheGame.TutorialSkipped -= TurnOffTutorialLimit;
+        }
+        else if (hasLimit && !limitForTutorial)
             IncreaseLimitUpgrade.OnLimitIncreased -= OnLimitIncreased;
         DOTween.Kill(this,true);
 
-        UnitManager.unitPlaced -= UnitPlaced;
+        if(hasLimit)
+        {
+            UnitManager.unitPlaced -= UnitChanged;
+            UnitManager.unitPlacementStarted -= UnitPlaced;
+            UnitManager.unitPlacementFinished -= UnitFinished;
+            PlayerUnit.unitRemoved -= UnitChanged;
+        }
     }
 
     private void AddUnit()
     {
         if (hasLimit && GetTotalUnits() >= limit)
         {
-            MessagePanel.ShowMessage($"Only {limit} {_unitType.ToNiceString()} can be placed.", null);
+            MessagePanel.ShowMessage($"Current limit of {_unitType.ToNiceStringPlural()} reached.", null);
             return;
         }
 
         if(canPlace || CanUnlock())
         {
-            um.SetUnitTypeToAdd(_unitType, !hasLimit);
+            um.SetUnitTypeToAdd(_unitType, CanRepeatPlace);
             unitSelectionManager.ClearSelection();
             buildingSelectWindow.HideWindow();
         }
     }
 
-    private void UnitPlaced(Unit unit)
+    private bool CanRepeatPlace()
+    {
+        return hasLimit ? GetTotalUnits() < limit : true;
+    }
+
+    private void UnitChanged(Unit unit)
     {
         if(unit is PlayerUnit playerUnit && playerUnit.unitType == _unitType)
         {
@@ -134,7 +177,7 @@ public class AddUnitButton : MonoBehaviour, IHaveResources
         if (!hasLimit)
             return;
 
-        if (GetTotalUnits() >= limit + 1) //plus one since the unit still exists
+        if (GetTotalUnits() >= limit) //plus one since the unit still exists
         {
             Color tint = clipMask.Tint;
             tint.a = 0.4f;
@@ -185,6 +228,21 @@ public class AddUnitButton : MonoBehaviour, IHaveResources
         requiredButtons = FindObjectsOfType<AddUnitButton>().Where(x => requiredToUnlock.Contains(x.unitType)).ToList();
     }
 
+    private void TurnOffTutorialLimit()
+    {
+        TurnOffTutorialLimit(0);
+    }
+
+    private void TurnOffTutorialLimit(int obj)
+    {
+        hasLimit = false;
+        Color tint = clipMask.Tint;
+        tint.a = 1f;
+        clipMask.Tint = tint;
+        DayNightManager.toggleDay -= TurnOffTutorialLimit;
+    }
+
+
     private void OnLimitIncreased(PlayerUnitType type, int increase)
     {
         if (this.unitType == type)
@@ -198,7 +256,7 @@ public class AddUnitButton : MonoBehaviour, IHaveResources
         }
     }
 
-    public List<PopUpResource> GetPopUpResources()
+    public List<PopUpResourceAmount> GetPopUpResources()
     {
         throw new System.NotImplementedException();
     }

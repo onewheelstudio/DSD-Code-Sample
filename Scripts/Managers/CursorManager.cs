@@ -1,8 +1,10 @@
 
 using DG.Tweening;
+using DG.Tweening.Core;
 using HexGame.Grid;
 using Sirenix.OdinInspector;
 using System;
+using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -36,6 +38,10 @@ public class CursorManager : MonoBehaviour
     private CursorType cursorType;
     private UnitSelectionManager usm;
     private bool snapToHex = true;
+    private Tween moveTween;
+
+    private DOGetter<Vector3> getPosition;
+    private DOSetter<Vector3> setPosition;
 
     private void Awake()
     {
@@ -44,6 +50,9 @@ public class CursorManager : MonoBehaviour
         SetCursor(CursorType.hex);
         audioSource = this.GetComponent<AudioSource>();
         usm = FindObjectOfType<UnitSelectionManager>();
+
+        getPosition = () => cursor.transform.position;
+        setPosition = x => cursor.transform.position = x;
     }
 
     private void OnDisable()
@@ -69,8 +78,15 @@ public class CursorManager : MonoBehaviour
             return;
 
         Vector3 location = HelperFunctions.GetMouseVector3OnPlane(snapToHex, mainCamera);//.ToHex3();
-        cursor.transform.DOMove(location + Vector3.up * verticalOffset, moveTime);
-        //cursor.transform.position = location.ToVector3() + Vector3.up * verticalOffset;
+        if(moveTween == null)
+        {
+            moveTween = DOTween.To(getPosition, setPosition, location + Vector3.up * verticalOffset, moveTime).SetUpdate(true);
+        }
+        else
+        {
+            moveTween.Kill();
+            moveTween = DOTween.To(getPosition,  setPosition, location + Vector3.up * verticalOffset, moveTime).SetUpdate(true);
+        }
 
         if (this.cursorType == CursorType.moveUnit)
             SetMoveCursorColor(location);
@@ -90,6 +106,8 @@ public class CursorManager : MonoBehaviour
     {
         if(cursorRenderer == null)
             cursorRenderer = cursor.GetComponent<MeshRenderer>();
+
+        cursorRenderer.enabled = true;
 
         if (cursorInfoDictionary.Cursors.TryGetValue(cursorType, out CursorInfo cursorInfo))
         {

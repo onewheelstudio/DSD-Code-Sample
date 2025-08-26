@@ -1,25 +1,38 @@
 using DG.Tweening;
 using Nova;
+using Sirenix.OdinInspector;
 using System.Collections.Generic;
 using UnityEngine;
-using Sirenix.OdinInspector;
-using System;
 
 public class NovaGroup : MonoBehaviour
 {
-    [SerializeField, ToggleLeft] private bool _interactable = true;
+    [SerializeField, ToggleLeft] private bool interactable = true;
     [SerializeField, ToggleLeft] private bool _ObstructDrags;
     [SerializeField] private List<GameObject> excludeList;
     [SerializeField] private bool subscribeToMaskColorChange = false;
-    public bool interactable
+    [SerializeField] private bool refreshBlocksOnClose = false;
+    private List<UIBlock2D> visibleBlocks = new();
+    private bool visible = true;
+    public bool Visible
     {
-        get { return _interactable; }
+        get => visible;
+        set
+        {
+            if (visible == value)
+                return;
+            visible = value;
+            ToggleVisible(value);
+        }
+    }
+    public bool Interactable
+    {
+        get { return interactable; }
         set
         {
             if (interactables == null || interactables.Length == 0)
                 UpdateInteractables();
             SetInteractable(value);
-            _interactable = value;
+            interactable = value;
         }
     }
     private Interactable[] interactables;
@@ -32,6 +45,11 @@ public class NovaGroup : MonoBehaviour
             SetObstructDrags(value);
             _ObstructDrags = value;
         }
+    }
+
+    private void Awake()
+    {
+        GetBlocks();
     }
 
     private void OnEnable()
@@ -54,7 +72,7 @@ public class NovaGroup : MonoBehaviour
     {
         if(endingColor.a >= startColor.a)
             UpdateInteractables();
-        interactable = endingColor.a >= startColor.a;
+        Interactable = endingColor.a >= startColor.a;
     }
 
     private void SetInteractable(bool isInteractable)
@@ -91,5 +109,29 @@ public class NovaGroup : MonoBehaviour
     public void UpdateInteractables()
     {
         this.interactables = this.GetComponentsInChildren<Interactable>(true);
+    }
+
+    [Button]
+    private void ToggleVisible(bool visible)
+    {
+        if (!Application.isPlaying)
+            return;
+
+        if (refreshBlocksOnClose && !visible)
+            GetBlocks();
+
+        for (int i = 0; i < visibleBlocks.Count; i++)
+        {
+            visibleBlocks[i].Visible = visible;
+        }
+    }
+
+    private void GetBlocks()
+    {
+        foreach (var block in this.GetComponentsInChildren<UIBlock2D>())
+        {
+            if(block.Visible)
+                visibleBlocks.Add(block);
+        }
     }
 }

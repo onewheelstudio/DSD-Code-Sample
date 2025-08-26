@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-public class StockMarket : MonoBehaviour
+public class StockMarket : MonoBehaviour, ISaveData
 {
     [SerializeField, ListDrawerSettings(NumberOfItemsPerPage = 1)]
     private List<ResourceMarket> resourceMarkets;
@@ -16,6 +16,10 @@ public class StockMarket : MonoBehaviour
     private WaitForSeconds wait = new WaitForSeconds(20f);
     public static event Action allPricesUpdated;
     public static event Action<ResourceType, ResourceMarket> resourcePriceUpdated;
+    /// <summary>
+    /// Returns the credits earned from the sale.
+    /// </summary>
+    public static event Action<int> resourceSold;
     [SerializeField] private Transform barParent;
     private PlayerResources playerResources;
     [SerializeField, Range(0f, 1f)]
@@ -23,11 +27,11 @@ public class StockMarket : MonoBehaviour
 
     private void Awake()
     {
-        dayNightManager = FindObjectOfType<DayNightManager>();
+        RegisterDataSaving();
+        dayNightManager = FindFirstObjectByType<DayNightManager>();
         dayLength = dayNightManager.DayLength / 60f;
-        playerResources = FindObjectOfType<PlayerResources>();
+        playerResources = FindFirstObjectByType<PlayerResources>();
 
-        CreateResources();
 
         int barCount = 45;
         if(barParent == null)
@@ -36,6 +40,10 @@ public class StockMarket : MonoBehaviour
         if(barParent)
             barCount = barParent.childCount;
 
+        if (SaveLoadManager.Loading)
+            return;
+
+        CreateResources();
         foreach (ResourceMarket market in resourceMarkets)
         {
             ResourceTemplate resoureTemplate = playerResources.GetResourceTemplate(market.resourceType);
@@ -58,13 +66,16 @@ public class StockMarket : MonoBehaviour
     private void OnEnable()
     {
         DayNightManager.toggleDay += MarketEvent;
+        SupplyShipBehavior.LoadShipped += LoadShipped;
+        PriceChangeTrigger.OnPriceChange += PriceChangeUntilDayNumber;
     }
 
     private void OnDisable()
     {
         DayNightManager.toggleDay -= MarketEvent;
+        SupplyShipBehavior.LoadShipped -= LoadShipped;
+        PriceChangeTrigger.OnPriceChange -= PriceChangeUntilDayNumber;
     }
-
 
 
     private void Start()
@@ -106,8 +117,8 @@ public class StockMarket : MonoBehaviour
         float change = market.currentPrice * HexTileManager.GetNextFloat(0f, market.dailyVoliatility / dayLength);
         market.direction = HexTileManager.GetNextFloat(0f, 1f) < market.chanceToFlip ? -1 * market.direction : market.direction;
         market.currentPrice += change * market.direction;
-        market.displayPrice = market.currentPrice * (market.demand - market.supply) / market.demand;
-        market.AddNewPrice(market.displayPrice);
+        market.DisplayPrice = market.currentPrice * (market.demand - market.supply) / market.demand;
+        market.AddNewPrice(market.DisplayPrice);
 
         market.supply = Mathf.Lerp(market.supply, 0, market.consumptionRate);
 
@@ -135,12 +146,16 @@ public class StockMarket : MonoBehaviour
     }
 
     [Button]
+    public void SellResource(ResourceAmount resource) => SellResource(resource.type, resource.amount);
     public void SellResource(ResourceType resource, int amount)
     {
         foreach (ResourceMarket market in resourceMarkets)
         {
             if (market.resourceType == resource)
             {
+                int credits = Mathf.RoundToInt(GetResourcePrice(resource) * amount);
+                resourceSold?.Invoke(credits);
+
                 market.supply += amount;
                 if(market.supply > market.demand)
                     market.supply = market.demand;
@@ -156,7 +171,7 @@ public class StockMarket : MonoBehaviour
         foreach (ResourceMarket market in resourceMarkets)
         {
             if (market.resourceType == resource)
-                return market.displayPrice;
+                return market.DisplayPrice;
         }
 
         return 0;
@@ -259,7 +274,53 @@ public class StockMarket : MonoBehaviour
             return Mathf.RoundToInt(value);
     }
 
+    private void LoadShipped(SupplyShipBehavior behavior, RequestType type1, List<ResourceAmount> type2)
+    {
+    }
 
+    /// <summary>
+    /// Adjusts the display price of a resource until the start of the given day.
+    /// </summary>
+    /// <param name="resource"></param>
+    /// <param name="percentChange"></param>
+    /// <param name="dayNumber"></param>
+    private void PriceChangeUntilDayNumber(ResourceType resource, float percentChange, int dayNumber)
+    {
+        foreach (ResourceMarket market in resourceMarkets)
+        {
+            if (market.resourceType == resource)
+            {
+                MarketModifier modifier = new MarketModifier();
+                modifier.market = market;
+                modifier.startDay = DayNightManager.DayNumber;
+                modifier.endDay = dayNumber + DayNightManager.DayNumber;
+                modifier.percentChange = percentChange;
+                market.AddPriceModifier(modifier);
+                break;
+            }
+        }
+    }
+
+    private const string MARKET_PATH = "StockMarket";
+    public void RegisterDataSaving()
+    {
+        SaveLoadManager.RegisterData(this);
+    }
+
+    public void Save(string savePath, ES3Writer writer)
+    {
+        writer.Write<List<ResourceMarket>>(MARKET_PATH, resourceMarkets);
+    }
+
+    public IEnumerator Load(string loadPath, Action<string> postUpdateMessage)
+    {
+        if(ES3.KeyExists(MARKET_PATH, loadPath))
+        {
+            postUpdateMessage?.Invoke("Building Stock Market");
+            resourceMarkets = ES3.Load<List<ResourceMarket>>(MARKET_PATH, loadPath);
+        }
+        yield return null;
+    }
 
     [System.Serializable]
     public class ResourceMarket
@@ -268,7 +329,20 @@ public class StockMarket : MonoBehaviour
         public float basePrice = 10f;
         public float dailyVoliatility = 0.05f;
         public float currentPrice = 10f;
-        public float displayPrice;
+        private float displayPrice;
+        public float DisplayPrice
+        {
+            set
+            {
+                displayPrice = value;
+            }
+            get
+            {
+                return displayPrice * GetPriceModifiers();
+            }
+        }
+
+        private List<MarketModifier> priceModifiers = new List<MarketModifier>();
         public int direction = 0;
         [Range(0.05f, 0.5f)]
         public float chanceToFlip = 0.1f;
@@ -291,5 +365,48 @@ public class StockMarket : MonoBehaviour
                     priceHistory[i] = priceHistory[i + 1];
             }
         }
+
+        private float GetPriceModifiers()
+        {
+            float priceAdditions = 1;
+            for (int i = priceModifiers.Count - 1; i >= 0; i--)
+            {
+                if(!priceModifiers[i].IsValid)
+                {
+                    priceModifiers.RemoveAt(i);
+                    continue;
+                }
+                else
+                    priceAdditions += priceModifiers[i].PercentChange;
+            }
+            return priceAdditions;
+        }
+
+        public void AddPriceModifier(MarketModifier modifier)
+        {
+            priceModifiers.Add(modifier);
+            AddNewPrice(DisplayPrice);
+
+            MessageData message = new MessageData();
+            message.message = $"Prices for {resourceType.ToNiceString(true)} {(modifier.percentChange > 0 ? "increased" : "decreased")} from {Mathf.RoundToInt(displayPrice)} to {Mathf.RoundToInt(DisplayPrice)} for {modifier.endDay - modifier.startDay} {(modifier.endDay - modifier.startDay > 1 ? "days" : "day")}.";
+            message.messageColor = ColorManager.GetColor(ColorCode.techCredit);
+            MessagePanel.ShowMessage(message);
+        }
+
+        public void RemovePriceModifier(MarketModifier modifier)
+        {
+            priceModifiers.Remove(modifier);
+            AddNewPrice(DisplayPrice);
+        }
+    }
+
+    public class MarketModifier
+    {
+        public ResourceMarket market;
+        public float percentChange;
+        public float PercentChange => DayNightManager.DayNumber <= endDay ? percentChange : 0;
+        public int startDay;
+        public int endDay;
+        public bool IsValid => DayNightManager.DayNumber <= endDay;
     }
 }

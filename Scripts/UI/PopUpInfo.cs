@@ -35,7 +35,8 @@ public struct PopUpInfo
         stats,
         storage,
         icon,
-        description
+        description,
+        shuttleUtilization,
     }
 
     public override string ToString()
@@ -82,9 +83,11 @@ public class RequestStorageInfo
     public CargoManager.RequestPriority priority;
     public Action<CargoManager.RequestPriority> setPriority;
     public Func<CargoManager.RequestPriority> getPriority;
+    public Action revertPrioity;
 
-    public List<UnitStorageBehavior> connections;
+    public HashSet<UnitStorageBehavior> connections;
     public Action startAddConnection;
+    public Action startRemoveConnection;
 }
 
 public struct PopUpButtonInfo
@@ -105,6 +108,7 @@ public enum ButtonType
     addUnit,
     removeUnit,
     launch,
+    connections,
 }
 
 public struct PopUpValues
@@ -154,14 +158,14 @@ public struct PopUpStats : IEqualityComparer, IEquatable<PopUpStats>
     }
 }
 
-public struct PopUpResource : IEqualityComparer, IEquatable<PopUpResource>
+public struct PopUpResourceAmount : IEqualityComparer, IEquatable<PopUpResourceAmount>
 {
     public ResourceAmount resource;
     public float maxStorage;
     public float priority;
     public Color color;
 
-    public PopUpResource(ResourceAmount resource, float maxStorage, float priority, Color color)
+    public PopUpResourceAmount(ResourceAmount resource, float maxStorage, float priority, Color color)
     {
         this.resource = resource;
         this.maxStorage = maxStorage;
@@ -171,12 +175,12 @@ public struct PopUpResource : IEqualityComparer, IEquatable<PopUpResource>
 
     public new bool Equals(object x, object y)
     {
-        PopUpResource first = (PopUpResource)x;
-        PopUpResource second = (PopUpResource)y;
+        PopUpResourceAmount first = (PopUpResourceAmount)x;
+        PopUpResourceAmount second = (PopUpResourceAmount)y;
         return first.Equals(second);
     }
 
-    public bool Equals(PopUpResource other)
+    public bool Equals(PopUpResourceAmount other)
     {
         return this.resource == other.resource && this.maxStorage == other.maxStorage;
     }
@@ -187,11 +191,24 @@ public struct PopUpResource : IEqualityComparer, IEquatable<PopUpResource>
     }
 }
 
-public class ReceipeInfo
+public struct PopUpResource
 {
-    public ReadOnlyCollection<ResourceProduction> receipes;
-    public IHaveReceipes receipeOwner;
+    public ResourceType resource;
+    public Color color;
+
+    public PopUpResource(ResourceType resource)
+    {
+        this.resource = resource;
+        this.color = Color.white;
+    }
+}
+
+public class RecipeInfo
+{
+    public ReadOnlyCollection<ResourceProduction> recipes;
+    public IHaveReceipes recipeOwner;
     public int currentRecipe;
     public float efficiency;
-    internal float timeToProduce;
+    public float timeToProduce;
+    public float upTime;
 }

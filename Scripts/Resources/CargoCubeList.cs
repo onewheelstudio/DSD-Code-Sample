@@ -1,6 +1,7 @@
 using HexGame.Resources;
 using OWS.ObjectPooling;
 using Sirenix.OdinInspector;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -9,26 +10,29 @@ public class CargoCubeList : SerializedScriptableObject
 {
     [SerializeField]
     private Dictionary<ResourceType, GameObject> cargoCubes = new Dictionary<ResourceType, GameObject>();
-    private Dictionary<ResourceType, ObjectPool<PoolObject>> cargoPools = new Dictionary<ResourceType, ObjectPool<PoolObject>>();
+    [NonSerialized] private Dictionary<ResourceType, ObjectPool<CargoCube>> cargoPools = new Dictionary<ResourceType, ObjectPool<CargoCube>>();
 
     [SerializeField,Required] private GameObject defaultCube;
 
-    public GameObject GetCargoCube(ResourceType resourceType)
+    public CargoCube GetCargoCube(ResourceType resourceType)
     {
-        if(cargoPools.TryGetValue(resourceType, out ObjectPool<PoolObject> pool))
-            return pool.PullGameObject();
+        if(cargoPools.TryGetValue(resourceType, out ObjectPool<CargoCube> pool))
+            return pool.Pull();
         else
         {
-            //if (!cargoCubes.ContainsKey(resourceType) && cargoCubes.Keys.Count > 0)
-            //    return GetCargoCube(cargoCubes.Keys.First());
-
             if(!cargoCubes.TryGetValue(resourceType, out GameObject prefab))
                 prefab = GameObject.Instantiate(defaultCube);
 
-            ObjectPool<PoolObject> newPool = new ObjectPool<PoolObject>(prefab);
+            ObjectPool<CargoCube> newPool = new ObjectPool<CargoCube>(prefab);
+            newPool.ToggleObjects = false;
             cargoPools.Add(resourceType, newPool);
 
-            return newPool.PullGameObject();
+            return newPool.Pull();
         }
+    }
+
+    public void ClearCargoPools()
+    {
+        cargoPools.Clear();
     }
 }

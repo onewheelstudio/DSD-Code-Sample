@@ -1,10 +1,8 @@
-using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
 using OWS.ObjectPooling;
 using Sirenix.OdinInspector;
 using System;
 using System.Linq;
+using UnityEngine;
 
 namespace HexGame.Units
 {
@@ -15,12 +13,11 @@ namespace HexGame.Units
         private FogUnit[] fogList;
         public bool isVisible => IsGroupVisible();
 
-
-
         [SerializeField] private EnemyGroup enemyGroup;
         public EnemyGroup EnemyGroup => enemyGroup;
         public static event Action<EnemyUnit> enemyUnitSpawned;
         public static event Action<EnemyUnit> enemyUnitKilled;
+        public event Action ThisUnitDied;
 
         private void Awake()
         {
@@ -30,6 +27,7 @@ namespace HexGame.Units
         private new void OnEnable()
         {
             base.OnEnable();
+            this.localStats[Stat.hitPoints] *= enemyGroup.subUnits.Count;
             foreach (var subUnit in enemyGroup.subUnits)
             {
                 if (subUnit == null)
@@ -41,6 +39,12 @@ namespace HexGame.Units
 
         private new void OnDisable()
         {
+            foreach (var subUnit in enemyGroup.subUnits)
+            {
+                if (subUnit == null)
+                    break;
+                subUnit.TurnOff();
+            }
             base.OnDisable();
         }
 
@@ -65,6 +69,8 @@ namespace HexGame.Units
                 damage *= 2f;
             float armorModification = GetStat(Stat.shield) <= 0 ? 1f : Mathf.Pow(0.99f, GetStat(Stat.shield));
             damage *= armorModification;
+            
+            this.stats.DoDeathParticles(enemySubUnit.TargetPoint); // fix this its getting call WAY too many times
 
             if (damage > this.stats.GetStat(Stat.hitPoints))
             {
@@ -81,7 +87,6 @@ namespace HexGame.Units
                     if (i >= enemyGroup.subUnits.Count) //is this causing the "too many" issue?
                         continue;
 
-                    this.stats.DoDeathParticles(enemyGroup.subUnits[i].TargetPoint); // fix this its getting call WAY too many times
                     enemyGroup.subUnits[i].TurnOff();
                 }
             }
@@ -125,11 +130,26 @@ namespace HexGame.Units
             pushToPool?.Invoke(this);
         }
 
+        public void SelfDestruct()
+        {
+            foreach (var subUnit in enemyGroup.subUnits)
+            {
+                if (subUnit == null)
+                    break;
+                subUnit.TurnOff();
+            }
+
+            Die();
+        }
+
         protected override void Die()
         {
             enemyUnitKilled?.Invoke(this);
-            base.Die();
+            ThisUnitDied?.Invoke();
+            stats.DoDeathParticles(this.transform.position);
             ReturnToPool();
+            this.gameObject.SetActive(false);
+            //base.Die(); //not using due to order of operations and making sure object goes back to the pool before getting turned off
         }
 
         [Button]

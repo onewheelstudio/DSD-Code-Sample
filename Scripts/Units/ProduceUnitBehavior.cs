@@ -22,6 +22,7 @@ public class ProduceUnitBehavior : UnitBehavior, IHavePopupInfo, IHaveButtons
     [SerializeField, ShowIf("createOnAwake"), BoxGroup("Create On Awake")] 
     private int numberToCreate = 1;
     private int maxNumber = 5;
+    [SerializeField] private int range = 1;
     [SerializeField] private bool useButtons = true;
 
     private void Awake()
@@ -29,7 +30,7 @@ public class ProduceUnitBehavior : UnitBehavior, IHavePopupInfo, IHaveButtons
         unitManager = GameObject.FindObjectOfType<UnitManager>();
         tileManager = GameObject.FindObjectOfType<HexTileManager>();
         usb = this.GetComponent<UnitStorageBehavior>();
-        if(createOnAwake)
+        if(createOnAwake && !SaveLoadManager.Loading)
         {
             for (int i = 0; i < numberToCreate; i++)
             {
@@ -84,19 +85,12 @@ public class ProduceUnitBehavior : UnitBehavior, IHavePopupInfo, IHaveButtons
         }
 
         numberRequested++;
-        RequestResources();
-    }
-
-    private void RequestResources()
-    {
-        List<ResourceAmount> cost = unitManager.GetUnitCost(unitType);
-        foreach (var resource in cost)
-            usb.RequestResource(resource);
+        //RequestResources();
     }
 
     private bool CreateUnit(bool unitsAreFree = false)
     {
-        List<Hex3> locationList = tileManager.GetFilledNeighborLocations(this.transform.position);
+        List<Hex3> locationList = HexTileManager.GetFilledNeighborLocations(this.transform.position, range);
         if (locationList.Count == 0)
         {
             MessagePanel.ShowMessage($"No room to add {unitType}", this.gameObject);

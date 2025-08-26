@@ -10,9 +10,12 @@ namespace NovaSamples.UIControls
     [RequireComponent(typeof(Interactable))]
     public class Button : UIControl<ButtonVisuals>
     {
-        [Tooltip("Event fired when the button is clicked.")]
+        [Tooltip("Event fired when the button is Clicked.")]
         public UnityEvent OnClicked = null;
-        public event System.Action clicked;
+        public event System.Action Clicked;
+        public event System.Action DoubleClicked;
+        private float lastClickTime = 0;
+        private float doubleClickTime = 0.5f;
 
         public UnityEvent OnRelease = null;
         public event System.Action onRelease;
@@ -58,8 +61,13 @@ namespace NovaSamples.UIControls
         private void HandleClicked(Gesture.OnClick evt, ButtonVisuals visuals)
         {
             OnClicked?.Invoke();
-            clicked?.Invoke();
+            Clicked?.Invoke();
             SFXManager.PlaySFX(SFXType.click);
+            if (Time.time - lastClickTime < doubleClickTime)
+            {
+                DoubleClicked?.Invoke();
+            }
+            lastClickTime = Time.time;
         }
         
         private void HandleUnHover(Gesture.OnUnhover evt, ButtonVisuals visuals)
@@ -79,7 +87,8 @@ namespace NovaSamples.UIControls
         public void RemoveAllListeners()
         {
             //did this work??
-            clicked = null;
+            Clicked = null;
+            DoubleClicked = null;
             onRelease = null;
             hover = null;
             unhover = null;
@@ -87,7 +96,12 @@ namespace NovaSamples.UIControls
 
         public void RemoveClickListeners()
         {
-            clicked = null;
+            Clicked = null;
+        }
+
+        public void RemoveDoubleClickListners()
+        {
+            DoubleClicked = null;
         }
 
         public void Hide()

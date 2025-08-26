@@ -9,12 +9,14 @@ public class DataSharingWindow : WindowPopup
 
     private void Start()
     {
-        bool shownBefore = ES3.Load<bool>("DataSharingWindowShownBefore", GameConstants.preferencesPath,false);
+        CloseWindow();
 
-        if (shownBefore)
-            CloseWindow();
-        else
-            OpenWindow();
+        //bool shownBefore = ES3.Load<bool>("DataSharingWindowShownBefore", GameConstants.preferencesPath,false);
+
+        //if (shownBefore)
+        //    CloseWindow();
+        //else
+        //    OpenWindow();
     }
 
     public override void OnEnable()

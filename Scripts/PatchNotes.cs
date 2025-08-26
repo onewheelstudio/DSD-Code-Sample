@@ -3,6 +3,7 @@ using Sirenix.Utilities;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using UnityEditor;
 using UnityEngine;
 
 [CreateAssetMenu(fileName = "Patch Notes", menuName = "Create New Patch Notes")]
@@ -43,6 +44,10 @@ public class PatchNotes : SerializedScriptableObject
     private void AddNotes()
     {
         SaveNotes(version, notes);
+#if UNITY_EDITOR
+        if(Application.isEditor)
+            PlayerSettings.bundleVersion = GetLatestVersion().ToString();
+#endif
     }
 
     [GUIColor(1f, 0.6f, 0.6f)]
@@ -120,5 +125,14 @@ public class PatchNotes : SerializedScriptableObject
         return Color.HSVToRGB(Mathf.Cos(3*(float)UnityEditor.EditorApplication.timeSinceStartup + 1f) * 0.225f + 0.325f, 1, 1);
 #endif
         return Color.white;
+    }
+
+    [Button]
+    private void Remove46Version()
+    {
+        if(patchNotes.TryGetValue(0.046f, out NoteContainer note))
+        {
+            patchNotes.Remove(0.046f);
+        }
     }
 }

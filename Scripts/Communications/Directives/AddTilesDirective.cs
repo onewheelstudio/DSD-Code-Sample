@@ -21,6 +21,7 @@ public class AddTilesDirective : DirectiveBase
 
     public override void Initialize()
     {
+        base.Initialize();
         numberAdded = 0;
         if(OnStartCommunication != null)
             CommunicationMenu.AddCommunication(OnStartCommunication);

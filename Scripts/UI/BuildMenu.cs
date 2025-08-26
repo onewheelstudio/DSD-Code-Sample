@@ -1,13 +1,16 @@
 using DG.Tweening;
 using HexGame.Units;
 using Nova;
+using Nova.Animations;
 using NovaSamples.UIControls;
 using Sirenix.OdinInspector;
+using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-public class BuildMenu : MonoBehaviour
+public class BuildMenu : MonoBehaviour, ISaveData
 {
     [SerializeField]
     private List<BuildGroup> buildGroups = new List<BuildGroup>();
@@ -15,10 +18,24 @@ public class BuildMenu : MonoBehaviour
 
     [Header("Tile Building")]
     [SerializeField] private BuildGroup tileBuilding;
+    private bool tileUnlocked = false;
 
     [Header("Callout Settings")]
     [SerializeField] private float calloutSize = 1.05f;
     [SerializeField] private float calloutTime = 0.75f;
+
+    public static event Action<UIBlock> IndicateButton;
+    [SerializeField] private GameSettings gameSettings;
+
+    private void Awake()
+    {
+        RegisterDataSaving();
+    }
+
+    private void Start()
+    {
+        UpdateVisibility();
+    }
 
     private void OnEnable()
     {
@@ -29,13 +46,13 @@ public class BuildMenu : MonoBehaviour
             //if we hover over any button in the group, kill the highlight animation
             foreach (var button in group.buttonParent.GetComponentsInChildren<Button>(true))
             {
-                button.hover += () => StopAnimation(group);
+                button.Clicked += () => StopAnimation(group);
             }
         }
 
         foreach (var button in tileBuilding.buttonParent.GetComponentsInChildren<Button>(true))
         {
-            button.hover += () => StopAnimation(tileBuilding);
+            button.Clicked += () => StopAnimation(tileBuilding);
         }
 
         SetTileBuildingButton(false);
@@ -46,11 +63,10 @@ public class BuildMenu : MonoBehaviour
 
     private void StopAnimation(BuildGroup group)
     {
-        if(group.tweens.Count == 0)
+        if(group.animHandles.Count == 0)
             return;
 
-        group.tweens.ForEach(x => x.Kill(true));
-        group.tweens.Clear();
+        group.animHandles.ForEach(a =>  a.Complete());
 
         group.buttonIcon.Color = Color.white;
         group.buttonIcon.transform.localScale = Vector3.one;
@@ -83,16 +99,20 @@ public class BuildMenu : MonoBehaviour
     public void UnlockTiles()
     {
         SetTileBuildingButton(true);
-        HighlightButton(tileBuilding);
+        if (!SaveLoadManager.Loading)
+            HighlightButton(tileBuilding);
     }
 
     private void SetTileBuildingButton(bool unlock)
     {
+        tileUnlocked = true;
         tileBuilding.buttonIcon.Color = unlock ? Color.white : ColorManager.GetColor(ColorCode.buttonGreyOut);
         tileBuilding.interactable.enabled = unlock;
+        if(unlock && !StateOfTheGame.tutorialSkipped && !SaveLoadManager.Loading)
+            IndicateButton?.Invoke(tileBuilding.groupButton);
     }
 
-    public void UnitTypeAdded(PlayerUnitType playerUnitType)
+    public void UnlockUnitType(PlayerUnitType playerUnitType)
     {
         if(!unlockedUnits.Add(playerUnitType))
             return;
@@ -102,6 +122,9 @@ public class BuildMenu : MonoBehaviour
     {
         foreach (PlayerUnitType type in System.Enum.GetValues(typeof(PlayerUnitType)))
         {
+            if(gameSettings.IsDemo && !gameSettings.DemoTypes.Contains(type))
+                continue;
+
             if(unlockedUnits.Add(type) && type != PlayerUnitType.hq)
                 UnLockUnit(type);
         }
@@ -113,11 +136,16 @@ public class BuildMenu : MonoBehaviour
         {
             AddUnitButton button = group.buttons.FirstOrDefault(x => x.unitType == unitType);
 
+
             if (button != null)
             {
-                MessagePanel.ShowMessage($"Building Unlocked: {unitType.ToNiceString()}", null);
                 button.UnlockButton();
+                if (SaveLoadManager.Loading)
+                    break;
+                MessagePanel.ShowMessage($"Building Unlocked: {unitType.ToNiceString()}", null);
+                StopAnimation(group);
                 HighlightButton(group);
+                IndicateButton?.Invoke(group.groupButton);
                 break;
             }
         }
@@ -130,13 +158,18 @@ public class BuildMenu : MonoBehaviour
 
         if(icon != null)
         {
-            Tween tween = icon.DoScale(Vector3.one * calloutSize, calloutTime)
-                              .SetLoops(-1, LoopType.Yoyo);
-            buildGroup.tweens.Add(tween);
+            ButtonHighlightAnimation animation = new ButtonHighlightAnimation()
+            {
+                startSize = new Vector3(50, 50, 0),
+                endSize = new Vector3(50, 50, 0) * calloutSize,
+                startColor = ColorManager.GetColor(ColorCode.callOut),
+                endColor = ColorManager.GetColor(ColorCode.callOut),
+                endAlpha = 0.5f,
+                uIBlock = icon
+            };
 
-            tween = icon.DOColor(ColorManager.GetColor(ColorCode.callOut), calloutTime)
-                        .SetLoops(-1, LoopType.Yoyo);
-            buildGroup.tweens.Add(tween);
+            AnimationHandle handle = animation.Loop(calloutTime, -1);
+            buildGroup.animHandles.Add(handle);
         }
     }
 
@@ -168,6 +201,40 @@ public class BuildMenu : MonoBehaviour
             group.buttonParent.GetComponent<UIBlock2D>().Position.Value = position;
         }
     }
+
+    private const string UNLOCKED_UNITS = "unlockedUnits";
+    private const string TILES_UNLOCKED = "tilesUnlocked";
+
+    public void RegisterDataSaving()
+    {
+        SaveLoadManager.RegisterData(this);
+    }
+
+    public void Save(string savePath, ES3Writer writer)
+    {
+        writer.Write<HashSet<PlayerUnitType>>(UNLOCKED_UNITS, unlockedUnits);
+        writer.Write<bool>(TILES_UNLOCKED, tileUnlocked);
+    }
+
+    public IEnumerator Load(string loadPath, Action<string> postUpdateMessage)
+    {
+        if(ES3.KeyExists(UNLOCKED_UNITS, loadPath))
+        {
+            foreach (PlayerUnitType type in ES3.Load<HashSet<PlayerUnitType>>(UNLOCKED_UNITS, loadPath))
+            {
+                UnLockUnit(type);
+            }
+        }
+
+        if(ES3.KeyExists(TILES_UNLOCKED, loadPath))
+        {
+            tileUnlocked = ES3.Load<bool>(TILES_UNLOCKED, loadPath);
+            if(tileUnlocked)
+                SetTileBuildingButton(tileUnlocked);
+        }
+
+        yield return null;
+    }
 }
 
 [System.Serializable]
@@ -182,6 +249,7 @@ public class BuildGroup
     [HideIf("@true")]
     public List<AddUnitButton> buttons;
     public List<Tween> tweens = new List<Tween>();
+    public List<AnimationHandle> animHandles = new List<AnimationHandle>();
 
     private void GetParts()
     {

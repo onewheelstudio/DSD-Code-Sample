@@ -10,6 +10,12 @@ public class QuestReward
     [Min(0)]
     public int techCreditsReward = 1;
 
+    public QuestReward()
+    {
+        this.repReward = 100;
+        this.techCreditsReward = 1;
+    }
+
     public QuestReward(int repReward, int techCreditsReward)
     {
         this.repReward = repReward;

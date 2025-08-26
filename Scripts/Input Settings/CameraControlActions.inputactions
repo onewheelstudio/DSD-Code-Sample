@@ -105,7 +105,7 @@
                     "id": "e6a4cf41-8c94-49af-9ec7-495216e6fe66",
                     "path": "<Mouse>/scroll",
                     "interactions": "",
-                    "processors": "",
+                    "processors": "ScaleVector2(x=120,y=120)",
                     "groups": "",
                     "action": "ZoomCamera",
                     "isComposite": false,

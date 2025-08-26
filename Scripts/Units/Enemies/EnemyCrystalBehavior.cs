@@ -22,17 +22,25 @@ public class EnemyCrystalBehavior : UnitBehavior
 
     public static event Action<Hex3> enemyLanding;
     public static event Action<PlayerUnit> enemyTargetSet;
+    public static event Action<EnemyCrystalBehavior> NoTargetFound;
 
     //do you want implement some visuals??
     private GameObject fogRevealer;
     private static int maxPower = 1;
     private int startingSpawnPower = 0;
+    public int StartingSpawnPower => startingSpawnPower;
+    private bool placedHill = false;
     [SerializeField, ProgressBar(0,"@maxPower")] private int powerLevel = 0;
 
     [Header("Nova")]
     private static ObjectPool<PoolObject> novaPool;
     [SerializeField] private GameObject novaParticalPrefab;
     private static EnemySpawnManager esm;
+
+    [Header("Models")]
+    [SerializeField] private GameObject crystalOn;
+    [SerializeField] private GameObject crystalOff;
+    public static event Action<EnemyCrystalBehavior> SpawnCanceled;
 
     public int PowerLevel { get => powerLevel;}
 
@@ -43,6 +51,9 @@ public class EnemyCrystalBehavior : UnitBehavior
         novaPool = new ObjectPool<PoolObject>(novaParticalPrefab);
         if(esm == null)
             esm = FindObjectOfType<EnemySpawnManager>();
+
+        crystalOff.SetActive(true);
+        crystalOn.SetActive(false);
     }
 
     private void OnEnable()
@@ -75,6 +86,9 @@ public class EnemyCrystalBehavior : UnitBehavior
 
         if (powerLevel == 0)
         {
+            crystalOff.SetActive(false);
+            crystalOn.SetActive(true);
+
             TryAddFogRevealer();
             startingSpawnPower = esm.SpawnPower - 1;
             powerLevel++;
@@ -107,7 +121,10 @@ public class EnemyCrystalBehavior : UnitBehavior
         
         PlayerUnit target = EnemyTargeting.GetHighestValueTarget(this.transform.position);
         if (target == null)
+        {
+            NoTargetFound?.Invoke(this);
             return;
+        }
         GeneratePathFromSpawnPoint(this.transform.position, target);
     }
 
@@ -116,15 +133,6 @@ public class EnemyCrystalBehavior : UnitBehavior
         Seeker seeker = GetSeeker();
         spawnPoint.s = -spawnPoint.q - spawnPoint.r; //making it easier to test can be removed.
         seeker.StartPath(spawnPoint, target.transform.position, (x) => OnPathComplete(x,target));
-    }
-
-    //for testing
-    [Button]
-    private void GeneratePathFromSpawnPoint(Transform start, Transform end)
-    {
-        Seeker seeker = GetSeeker();
-        PlayerUnit hq = UnitManager.GetPlayerUnitByType(PlayerUnitType.hq)[0];
-        seeker.StartPath(start.position, end.position, (x) => OnPathComplete(x, hq));
     }
 
     private Seeker GetSeeker()
@@ -136,7 +144,7 @@ public class EnemyCrystalBehavior : UnitBehavior
         }
 
         Seeker newSeeker = this.gameObject.AddComponent<Seeker>();
-        newSeeker.traversableTags = (1 << 5) | (1 << 0) | (1 << 2) |(1<< 11); //flat, forest, empty
+        newSeeker.traversableTags = (1 << 5) | (1 << 0) | (1 << 2) |(1<< 11) | (1<<16) | (1<<15) |(1<<14)|(1<<13); //flat, forest, empty
         newSeeker.startEndModifier = new StartEndModifier() { exactEndPoint = StartEndModifier.Exactness.SnapToNode };
         seekers.Add(newSeeker);
         return newSeeker;
@@ -145,7 +153,10 @@ public class EnemyCrystalBehavior : UnitBehavior
     private void OnPathComplete(Path p, PlayerUnit target)
     {
         if (p.error)
+        { 
             Debug.LogError("Couldn't find a path...");
+            SpawnCanceled?.Invoke(this);
+        }
         else
         {
             StartCoroutine(DoSpawn(p.vectorPath, target));
@@ -157,7 +168,10 @@ public class EnemyCrystalBehavior : UnitBehavior
         GetLandingMarkerPosition(path, target); //marker gets placed after this
         yield return SpawnTilesForPath(path);
         Vector3 spawnPosition = htm.GetRandomEmptyNeighbor(path[0]);
-        yield return new WaitUntil(() => DayNightManager.isNight);
+        if(!DayNightManager.isNight)
+            yield return new WaitUntil(() => DayNightManager.isNight);
+        if(!LootManager.LootCollected)
+            yield return new WaitUntil(() => LootManager.LootCollected);
         DoNova();
         yield return new WaitForSeconds(1f);
         PlaceEnemySpawner(spawnPosition);
@@ -213,24 +227,31 @@ public class EnemyCrystalBehavior : UnitBehavior
             }
         }
 
+
         //early exit so we only generate extra blocks the first time
         if (powerLevel > 1 || powerLevel % 2 == 0 )
             yield break;
+
+        //if (!placedHill)
+        //{
+        //    Hex3 hillLocation = htm.GetRandomEmptyNeighbor(path[^2]);
+        //    placedHill = htm.PlaceAtLocation(htm.GetRandomEmptyNeighbor(hillLocation), HexTileType.hill);
+        //}
 
         int randomsToAdd = path.Count / 3;
         for (int i = 0; i < randomsToAdd; i++)
         {
             Vector3 randomLocation = path[HexTileManager.GetNextInt(0, path.Count)];
-
-            for (int j = 0; j < HexTileManager.GetNextInt(1, 4); j++)
-            {
-                if (j % 2 == 1)
-                    htm.PlaceAtLocation(htm.GetRandomEmptyNeighbor(randomLocation), HexTileType.forest);
-                else
-                    htm.PlaceAtLocation(htm.GetRandomEmptyNeighbor(randomLocation), HexTileType.grass);
-
-                yield return null;
-            }
+            int j = HexTileManager.GetNextInt(1, 10);
+            //if (j == 1)
+            //    htm.PlaceAtLocation(htm.GetRandomEmptyNeighbor(randomLocation), HexTileType.hill);
+            //else 
+            if (j == 2 || j == 3)
+                htm.PlaceAtLocation(htm.GetRandomEmptyNeighbor(randomLocation), HexTileType.forest);
+            else if (j == 4 || j == 5)
+                htm.PlaceAtLocation(htm.GetRandomEmptyNeighbor(randomLocation), HexTileType.funkyTree);
+            else
+                htm.PlaceAtLocation(htm.GetRandomEmptyNeighbor(randomLocation), HexTileType.grass);
         }
     }
 
@@ -240,10 +261,48 @@ public class EnemyCrystalBehavior : UnitBehavior
         this.spawner.DoSpawn(powerLevel, position);
     }
 
+
+    private float timeLastNova;
     public void DoNova()
     {
+        if(Time.timeSinceLevelLoad - timeLastNova < 1f)
+            return;
+
+        timeLastNova = Time.timeSinceLevelLoad;
         Vector3 position = this.transform.position;
         position.y = 0.75f;
         novaPool.Pull(position);
+    }
+    public EnemyCrystalData GetSaveData()
+    {
+        EnemyCrystalData crystalData = new EnemyCrystalData
+        {
+            position = this.transform.position,
+            powerLevel = PowerLevel,
+            startPowerLevel = startingSpawnPower
+        };
+
+        return crystalData;
+    }
+
+    public void LoadSaveData(EnemyCrystalData crystalData)
+    {
+        this.transform.position = crystalData.position;
+        powerLevel = crystalData.powerLevel;
+        startingSpawnPower = crystalData.startPowerLevel;
+
+        if (powerLevel > 0)
+        {
+            EnemyIndicator.AddIndicatorObject(this.gameObject, IndicatorType.crystal);
+            TryAddFogRevealer();
+            crystalOff.SetActive(false);
+            crystalOn.SetActive(true);
+        }
+    }
+    public struct EnemyCrystalData
+    {
+        public Vector3 position;
+        public int powerLevel;
+        public int startPowerLevel;
     }
 }

@@ -32,24 +32,25 @@ public class ConnectionDirective : DirectiveBase
 
     public override void Initialize()
     {
+        base.Initialize();
         if (removeConnections)
             UnitStorageBehavior.connectionRemoved += ConnectionChanged;
         else
             UnitStorageBehavior.connectionAdded += ConnectionChanged;
 
         CommunicationMenu.AddCommunication(OnStartCommunication);
-        foreach (ConnectionRequirement connectionRequirement in connectionRequiremented)
-        {
-            connectionRequirement.connectionCount = 0;
-        }
+        //foreach (ConnectionRequirement connectionRequirement in connectionRequiremented)
+        //{
+        //    connectionRequirement.connectionCount = 0;
+        //}
     }
 
     private void ConnectionChanged(UnitStorageBehavior behavior1, UnitStorageBehavior behavior2)
     {
         if(behavior1.TryGetComponent(out PlayerUnit playerUnit1) && behavior2.TryGetComponent(out PlayerUnit playerUnit2))
         {
-            PlayerUnitType start = playerUnit1.unitType;
-            PlayerUnitType end = playerUnit2.unitType;
+            PlayerUnitType start = GetUnitType(playerUnit1);
+            PlayerUnitType end = GetUnitType(playerUnit2);
             foreach (ConnectionRequirement connectionRequirement in connectionRequiremented)
             {
                 if (connectionRequirement.startConnection == start && connectionRequirement.endConnection == end)
@@ -59,6 +60,14 @@ public class ConnectionDirective : DirectiveBase
                 }
             }
         }
+    }
+
+    private PlayerUnitType GetUnitType(PlayerUnit playerUnit)
+    {
+        if (playerUnit.unitType != PlayerUnitType.buildingSpot)
+            return playerUnit.unitType;
+        else
+            return playerUnit.GetComponent<BuildingSpotBehavior>().unitTypeToBuild;
     }
 
     public override List<bool> IsComplete()
@@ -83,7 +92,7 @@ public class ConnectionDirective : DirectiveBase
     }
 
     [System.Serializable]
-    private class ConnectionRequirement
+    public class ConnectionRequirement
     {
         public PlayerUnitType startConnection;
         public PlayerUnitType endConnection;

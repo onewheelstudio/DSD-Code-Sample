@@ -5,13 +5,15 @@ using UnityEngine;
 
 public class IntroFade : MonoBehaviour
 {
-    private UIBlock2D fadeBlock;
+    private ClipMask clipMask;
+    [SerializeField] private bool fadeOnStart = true;
 
     // Start is called before the first frame update
     void Start()
     {
-        fadeBlock = GetComponent<UIBlock2D>();
-        FadeToTransparent();
+        clipMask = GetComponent<ClipMask>();
+        if (fadeOnStart)
+            FadeToTransparent();
     }
 
 
@@ -22,11 +24,11 @@ public class IntroFade : MonoBehaviour
 
     public void FadeToBlack(Action callback = null)
     {
-        fadeBlock.DoFadeIn(1f, callback);
+        clipMask.DoFade(1f, 1f, callback);
     }
     
     public void FadeToTransparent(Action callback = null)
     {
-        fadeBlock.DoFadeOut(0f, callback);
+        clipMask.DoFade(0f, 1f, callback);
     }
 }

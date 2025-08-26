@@ -1,10 +1,9 @@
-using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
 using HexGame.Resources;
-using System;
 using OWS.ObjectPooling;
 using Sirenix.OdinInspector;
+using System;
+using System.Collections;
+using UnityEngine;
 
 namespace HexGame.Units
 {
@@ -23,8 +22,9 @@ namespace HexGame.Units
         public bool inUse;
 
         [SerializeField] private bool useDeactivation = false;
-        [SerializeField, ShowIf("useDeactivation")] private float deactivationTime = 300f;
         public static event Action<ResourcePickup> resourceDeactivated;
+        private Vector3 spawnPosition;
+        private int daySpawned;
 
 
         private void Awake()
@@ -35,14 +35,19 @@ namespace HexGame.Units
 
         private void OnEnable()
         {
-            if(useDeactivation)
-                StartCoroutine(DeactivateAfterTime());
+            if (useDeactivation)
+                DayNightManager.toggleDay += DeactivateResource;
         }
+
+
 
         private void OnDisable()
         {
             if(resourceStart.type != ResourceType.Terrene)
                 usb.resourcePickedUp -= ToggleOff;
+
+            if(useDeactivation)
+                DayNightManager.toggleDay -= DeactivateResource;
 
             StopAllCoroutines();
             ReturnToPool();
@@ -57,6 +62,8 @@ namespace HexGame.Units
         {
             isFunctional = true;
             inUse = false;
+            spawnPosition = this.transform.position;
+            daySpawned = DayNightManager.DayNumber;
             StartCoroutine(DelayPickUpCall());
         }
 
@@ -64,6 +71,7 @@ namespace HexGame.Units
         {
             yield return null;
             pickUpCreated?.Invoke(this);
+            usb.UpdateStoredPosition();
         }
 
         public override void StopBehavior()
@@ -82,7 +90,7 @@ namespace HexGame.Units
                 usb.resourcePickedUp += ToggleOff;
                 usb.AddResourceForPickup(resourceStart);
                 usb.AddToPickUpTypes(resourceStart.type);
-                usb.AddToAllowedTypes(resourceStart.type);
+                //usb.AddToAllowedTypes(resourceStart.type);
             }
         }
 
@@ -98,9 +106,15 @@ namespace HexGame.Units
             returnToPool?.Invoke(this);
         }
 
-        private IEnumerator DeactivateAfterTime()
+        private void DeactivateResource(int obj)
         {
-            yield return new WaitForSeconds(deactivationTime);
+            if(obj == daySpawned)
+                return;
+            if (spawnPosition != this.transform.position)
+                return;
+            if(inUse)
+                return;
+
             resourceDeactivated?.Invoke(this);
             this.gameObject.SetActive(false);
         }

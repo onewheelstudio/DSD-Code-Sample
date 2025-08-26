@@ -1,3 +1,4 @@
+using DG.Tweening;
 using HexGame.Grid;
 using OWS.ObjectPooling;
 using Shapes;
@@ -30,11 +31,11 @@ public class HexRange : MonoBehaviour, IPoolable<HexRange>
 
         this.range = range;
         outerBorder.Color = new Color(borderColor.r, borderColor.g, borderColor.b, 0f);
-        outerBorder.DOFade(borderColor.a, tweenTime);
+        outerBorder.DOFade(borderColor.a, tweenTime).SetUpdate(true);
         innerBorder.Color = new Color(borderColor.r, borderColor.g, borderColor.b, 0f);
-        innerBorder.DOFade(borderColor.a, tweenTime);
+        innerBorder.DOFade(borderColor.a, tweenTime).SetUpdate(true); ;
         polygon.Color = new Color(bodyColor.r, bodyColor.g, bodyColor.b, 0f);
-        polygon.DOFade(bodyColor.a, tweenTime);
+        polygon.DOFade(bodyColor.a, tweenTime).SetUpdate(true);
     }
 
     public void HideRange()
@@ -47,10 +48,10 @@ public class HexRange : MonoBehaviour, IPoolable<HexRange>
 
     private IEnumerator FadeOut()
     {
-        outerBorder.DOFade(0f, tweenTime);
-        innerBorder.DOFade(0f, tweenTime);
-        polygon.DOFade(0f, tweenTime);
-        yield return new WaitForSeconds(tweenTime);
+        outerBorder.DOFade(0f, tweenTime).SetUpdate(true);
+        innerBorder.DOFade(0f, tweenTime).SetUpdate(true);
+        polygon.DOFade(0f, tweenTime).SetUpdate(true);
+        yield return new WaitForSecondsRealtime(tweenTime);
         this.gameObject.SetActive(false);
     }
 

@@ -7,7 +7,9 @@ using UnityEngine.InputSystem;
 using System.Linq;
 using System;
 using HexGame.Grid;
-using Nova;
+using NovaSamples.UIControls;
+using UnityEngine.PlayerLoop;
+using static UnityEngine.Rendering.DebugUI;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -37,6 +39,7 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
 
     private HexTileType nextTileType;
     private HexTile nextTile;
+    public bool IsPlacingTile => nextTile != null;
     [BoxGroup("Tile Placement Settings")]
     [SerializeField]
     private bool requireNeighbors = true;
@@ -69,8 +72,8 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
             return randomizeSeed;
         }
     }
+    private static System.Random externalRandom;
     private static System.Random random;
-    [SerializeField] private bool randomOnLoad = false;
     private Transform tileParent;
 
     [Title("Fog")]
@@ -100,7 +103,8 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
         //HexTile.HexTileRemoved += RemoveHexToDictionary;
         PlaceHolderTileBehavior.tileComplete += CompletePlaceHolder;
         cameraControls.PointerInput.Enable();
-        LandmassCreator.generationComplete += CheckTiles;
+        LandmassGenerator.generationComplete += CheckTiles;
+        WindowPopup.SomeWindowOpened += ForceOff;
     }
 
     private void OnDisable()
@@ -109,9 +113,9 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
         //HexTile.HexTileRemoved -= RemoveHexToDictionary;
         PlaceHolderTileBehavior.tileComplete -= CompletePlaceHolder;
         cameraControls.PointerInput.Disable();
-        LandmassCreator.generationComplete -= CheckTiles;
+        LandmassGenerator.generationComplete -= CheckTiles;
+        WindowPopup.SomeWindowOpened -= ForceOff;
     }
-
 
 
     private void CheckTiles()
@@ -191,13 +195,36 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
                 TryPlaceTileAtMouse(nextTile);
 
         }
-
-        if (nextTile != null && Mouse.current.rightButton.isPressed)
+        else if(nextTile != null)
         {
-            Destroy(nextTile.gameObject);
-            tilePlacementCompleted?.Invoke();
+            Hex3 location = HelperFunctions.GetMouseHex3OnPlane();
+            //checking for location reveled in CanAddTileAtLocation breaks landmass generation
+            bool canPlace = CanAddTileAtLocation(location, true) && IsLocationRevealed(location);
+            nextTile.PlaceHolderBehavior.UpdateLocationValidity(canPlace);
+        }
+
+        if (nextTile != null && (Mouse.current.rightButton.wasPressedThisFrame || Keyboard.current.escapeKey.wasPressedThisFrame))
+        {
+            DestroyTile();
         }
     }
+
+    private async Awaitable DestroyTile()
+    {
+        await Awaitable.NextFrameAsync();
+        Destroy(nextTile.gameObject);
+        tilePlacementCompleted?.Invoke();
+    }
+
+    private void ForceOff(WindowPopup popup)
+    {
+        if (popup is InfoToolTipWindow || nextTile == null)
+            return;
+
+        Destroy(nextTile.gameObject);
+        tilePlacementCompleted?.Invoke();
+    }
+
 
     public void SetNextTile(HexTileType tileType, bool isPlaceHolder = false)
     {
@@ -290,7 +317,7 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
             hexTile.Rotate(random.Next(0, 6));
         hexTile.PlaceHex();
         hexTile.transform.SetParent(tileParent);
-        if (Keyboard.current.shiftKey.isPressed && nextTile && nextTile.isPlaceHolder) //allows for placing multiple tiles in a row
+        if (!Keyboard.current.shiftKey.isPressed && nextTile && nextTile.isPlaceHolder) //allows for placing multiple tiles in a row
         {
             nextTileToAdd = Instantiate(nextTileToAdd);
             nextTile = nextTileToAdd.GetComponent<HexTile>();
@@ -312,6 +339,8 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
         tile.transform.position = behavior.transform.position;
         tile.transform.rotation = behavior.transform.rotation;
         tile.PlaceHex();
+        if (NumberOfRevealersAtLocation(behavior.transform.position) == 0)
+            tile.FogTile.MoveToPlacedConfiguration();
         //tile.FogTile.MoveToRevealed(); //reveal since we just built it!!
 
         if (revealedLocations.TryGetValue(behavior.transform.position.ToHex3(), out List<FogRevealer> fogRevealers))
@@ -432,7 +461,7 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
         TrySeedTile(startLocation, HexTileType.grass);
         Hex3 nextLocation = GetRandomEmptyNeighbor(startLocation);
 
-        List<HexTile> placedTiles = GetTilesToFill(nextLocation, HexTileType.grass, GetNextInt(1, numberOfTiles + 1), false);
+        List<HexTile> placedTiles = GetTilesToFill(nextLocation, HexTileType.grass, GetNextInt_Internal(1, numberOfTiles + 1), false);
 
         List<Hex3> nextLocationList = GetEmptyNeighborLocations(placedTiles);
         if (nextLocationList.Count == 0)
@@ -441,19 +470,19 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
             return;
         }
 
-        placedTiles.AddRange(GetTilesToFill(nextLocationList[GetNextInt(0,
+        placedTiles.AddRange(GetTilesToFill(nextLocationList[GetNextInt_Internal(0,
                                             nextLocationList.Count)],
                                             HexTileType.forest,
-                                            GetNextInt(0, numberOfTiles),
+                                            GetNextInt_Internal(0, numberOfTiles),
                                             false));
 
         nextLocationList = GetEmptyNeighborLocations(placedTiles);
         if (nextLocationList.Count > 0)
         {
-            List<HexTile> tilesToAdd = GetTilesToFill(nextLocationList[GetNextInt(0,
+            List<HexTile> tilesToAdd = GetTilesToFill(nextLocationList[GetNextInt_Internal(0,
                                                         nextLocationList.Count)],
                                                         HexTileType.mountain,
-                                                        GetNextInt(0, numberOfTiles),
+                                                        GetNextInt_Internal(0, numberOfTiles),
                                                         false);
             if (tilesToAdd.Count > 0)
                 placedTiles.AddRange(tilesToAdd);
@@ -480,7 +509,7 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
     /// </summary>
     /// <param name="location"></param>
     /// <returns></returns>
-    public List<Hex3> GetFilledNeighborLocations(Hex3 location)
+    public static List<Hex3> GetFilledNeighborLocations(Hex3 location)
     {
         List<Hex3> filledNeighbors = new List<Hex3>();
         foreach (var neighbor in Hex3.GetNeighborLocations(location))
@@ -490,6 +519,31 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
         }
 
         return filledNeighbors;
+    }
+    
+    public static List<Hex3> GetFilledNeighborLocations(Hex3 location, int range)
+    {
+        List<Hex3> filledNeighbors = new List<Hex3>();
+        foreach (var neighbor in Hex3.GetNeighborsInRange(location, range))
+        {
+            if (hexTiles.ContainsKey(neighbor))
+                filledNeighbors.Add(neighbor);
+        }
+
+        return filledNeighbors;
+    }
+    
+    public static List<HexTile> GetTilesAtLocations(List<Hex3> locations)
+    {
+        List<HexTile> tiles = new List<HexTile>();
+
+        foreach (var neighbor in locations)
+        {
+            if (hexTiles.TryGetValue(neighbor, out HexTile hexTile))
+                tiles.Add(hexTile);
+        }
+
+        return tiles;
     }
 
     /// <summary>
@@ -560,6 +614,18 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
             return Hex3.Zero;
     }
 
+    public static List<Hex3> GetAllEmptyTiles(int minRange, int maxRange)
+    {
+        List<HexTile> tiles = new List<HexTile>();
+        foreach (var tile in hexTiles.Values)
+        {
+            if(tile.hexPosition.Max() >= minRange && tile.hexPosition.Max() <= maxRange)
+                tiles.Add(tile);
+        }
+
+        return GetEmptyNeighborLocations(tiles);
+    }
+
     public static List<HexTile> GetAllTilesOfType(HexTileType tileType)
     {
         List<HexTile> tilesOfType = new List<HexTile>();
@@ -589,11 +655,11 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
         return GetAllTilesOfType(tileType, locations);
     }
 
-    private bool CanAddTileAtLocation(Hex3 hex, bool requireNeighbor = true)
+    public bool CanAddTileAtLocation(Hex3 hex, bool requireNeighbor = true)
     {
         if (hexTiles.Count == 0)
             return true;
-        if (hex.Max() > LandmassCreator.globalSize)
+        if (hex.Max() > LandmassGenerator.globalSize)
             return false;
         else if (hexTiles.ContainsKey(hex))
             return false;
@@ -653,11 +719,11 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
         if ((hexTile.TileType == HexTileType.mountain
             || hexTile.TileType == HexTileType.forest
             || hexTile.TileType == HexTileType.water)
-            && GetNextInt(0, 100) > 40)
+            && GetNextInt_Internal(0, 100) > 40)
         {
             ReplaceHexTile(hexTile, HexTileType.grass);
         }
-        else if (hexTile.TileType == HexTileType.grass && GetNextInt(0, 100) > 40)
+        else if (hexTile.TileType == HexTileType.grass && GetNextInt_Internal(0, 100) > 40)
         {
             RemoveHexToDictionary(hexTile);
             hexTile.DestroyTile();
@@ -749,40 +815,78 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
         List<Hex3> neighbors = new List<Hex3>(neighborCount);
         for (int i = min; i < max + 1; i++)
         {
-            neighbors.AddRange(Hex3.GetNeighborsAtDistance(center, i));
+            Hex3.GetNeighborsAtDistance(center, i, ref neighbors);
         }
         return neighbors;
     }
-    public static Hex3 GetRandomLocationAtDistance(Hex3 center, int distance)
+    
+    public static List<Hex3> GetHex3WithInRange(Hex3 center, int min, int max, ref List<Hex3> neighbors)
     {
-        List<Hex3> neighbors = Hex3.GetNeighborsAtDistance(center, distance);
+        int neighborCount = 0;
+        for (int i = min; i < max + 1; i++)
+        {
+            if (i == 0)
+                neighborCount += 1;
+            else
+                neighborCount += i * 6;
+        }
+        for (int i = min; i < max + 1; i++)
+        {
+            Hex3.GetNeighborsAtDistance(center, i, ref neighbors);
+        }
+        return neighbors;
+    }
+
+    public static Hex3 GetRandomLocationAtDistance(Hex3 center, int distance, int maxFilledNeighbors = 3)
+    {
+        List<Hex3> neighbors = Hex3.GetNeighborsAtDistance(center, distance).OrderBy(h => System.Guid.NewGuid()).ToList();
         if (neighbors == null || neighbors.Count == 0)
         {
             Debug.Log($"This shouldn't happen. No neighbors for {center} at distance {distance}");
             return new Hex3();
         }
 
+        for (int i = 0; i < neighbors.Count; i++)
+        {
+            if (hexTiles.ContainsKey(neighbors[i]))
+                continue;
+
+            if(GetFilledNeighborLocations(neighbors[i]).Count > maxFilledNeighbors)
+                continue;
+
+            return neighbors[i];
+        }
+
         return neighbors[random.Next(0, neighbors.Count)];
     }
 
-    public static int GetNextInt(int min, int max)
+    private int GetNextInt_Internal(int min, int max)
     {
         if (random == null)
         {
-            HexTileManager htm = FindObjectOfType<HexTileManager>();
-            random = new System.Random(htm.RandomizeSeed);
+            random = new System.Random(RandomizeSeed);
         }
         return random.Next(min, max);
     }
 
-    public static float GetNextFloat(float min = 0f, float max = 1f)
+    public static int GetNextInt(int min, int max)
     {
-        if (random == null)
+        if (externalRandom == null)
         {
             HexTileManager htm = FindObjectOfType<HexTileManager>();
-            random = new System.Random(htm.RandomizeSeed);
+            externalRandom = new System.Random(htm.RandomizeSeed);
         }
-        return (float)(random.NextDouble() * (max - min) + min);
+        return externalRandom.Next(min, max);
+    }
+
+    public static float GetNextFloat(float min = 0f, float max = 1f)
+    {
+        if (externalRandom == null)
+        {
+            HexTileManager htm = FindObjectOfType<HexTileManager>();
+            externalRandom = new System.Random(htm.RandomizeSeed);
+        }
+        return (float)(externalRandom.NextDouble() * (max - min) + min);
     }
 
     private struct TilePrefabContainer
@@ -814,7 +918,7 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
 
     public IEnumerator PlaceFogOverTime()
     {
-        List<Hex3> hexes = Hex3.GetNeighborsInRange(Hex3.Zero, LandmassCreator.globalSize);
+        List<Hex3> hexes = Hex3.GetNeighborsInRange(Hex3.Zero, LandmassGenerator.globalSize);
         for (int i = 0; i < hexes.Count; i++)
         {
             if (revealedLocations.Keys.Contains(hexes[i]))
@@ -825,7 +929,7 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
                 FogTile blankTile = Instantiate(fogTilePrefab, hexes[i], Quaternion.identity);
                 blankTile.transform.SetParent(tileParent);
                 fogTiles.TryAdd(hexes[i], blankTile);
-                blankTile.transform.Rotate(Vector3.up, HexTileManager.GetNextInt(0, 6) * 60f);
+                blankTile.transform.Rotate(Vector3.up, GetNextInt_Internal(0, 6) * 60f);
             }
 
             if (i % 50 == 0)
@@ -835,14 +939,14 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
     public IEnumerator PlaceBorderTiles()
     {
         int count = 0;
-        foreach (Hex3 hex in Hex3.GetNeighborsAtDistance(Hex3.Zero, LandmassCreator.globalSize + 1))
+        foreach (Hex3 hex in Hex3.GetNeighborsAtDistance(Hex3.Zero, LandmassGenerator.globalSize + 1))
         {
             if (!HexTileManager.GetHexTiles().TryGetValue(hex, out HexTile hexTile))
             {
                 count++;
                 GameObject blankTile = Instantiate(borderTilePrefab, hex, Quaternion.identity);
                 blankTile.transform.SetParent(tileParent);
-                blankTile.transform.Rotate(Vector3.up, HexTileManager.GetNextInt(0, 6) * 60f);
+                blankTile.transform.Rotate(Vector3.up, GetNextInt_Internal(0, 6) * 60f);
                 borderTiles.TryAdd(hex, blankTile);
             }
 
@@ -858,12 +962,15 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
         StartCoroutine(AddAgentsOverTime(locations, fogRevealer, addOverTime));
     }
 
-    private IEnumerator AddAgentsOverTime(List<Hex3> locations, FogRevealer fogRevealer, bool addOverTime = true)
+    private IEnumerator AddAgentsOverTime(IEnumerable<Hex3> locations, FogRevealer fogRevealer, bool addOverTime = true)
     {
-        locations = locations.OrderBy(l => Hex3.DistanceBetween(l, fogRevealer.transform.position.ToHex3())).ToList();
+        locations = locations.OrderBy(l => Hex3.DistanceBetween(l, fogRevealer.transform.position.ToHex3()));
 
         foreach (var location in locations)
         {
+            if (fogRevealer == null)
+                continue;
+
             if (revealedLocations.TryGetValue(location, out List<FogRevealer> fogRevealers))
             {
                 if (!fogRevealers.Contains(fogRevealer))
@@ -921,7 +1028,7 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
             if (revealedLocations.TryGetValue(location, out List<FogRevealer> fogRevealers))
                 fogRevealers.Remove(fogRevealer);
 
-            if (hexTiles.TryGetValue(location, out HexTile hexTile) && hexTile != null)
+            if (hexTiles.TryGetValue(location, out HexTile hexTile) && hexTile != null && !hexTile.isPlaceHolder)
             {
                 if (hexTile.FogTile == null)
                 {
@@ -972,38 +1079,77 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
     private const string TILE_SAVE_PATH = "HexTileData";
     private const string FOG_SAVE_PATH = "FogTileData";
     private const string BORDER_SAVE_PATH = "BorderTileData";
+    private const string RANDOM_SEED_PATH = "RandomSeed";
+    private const string RANDOM_PATH = "Random";
+    private const string REVEALED_TILE_PATH = "RevealedTileData";
+    public static string RandomSeedPath => RANDOM_SEED_PATH;
     private int spawnInterval = 50;
     public void RegisterDataSaving()
     {
-        SaveLoadManager.RegisterData(this);
+        SaveLoadManager.RegisterData(this, 0);
     }
 
-    public void Save(string savePath)
+    public void Save(string savePath, ES3Writer writer)
     {
         List<HexTileData> data = new List<HexTileData>();
         foreach (var hex in hexTiles.Values)
         {
-            data.Add(new HexTileData { location = hex.hexPosition, tileType = hex.TileType });
-        }
-        ES3.Save<List<HexTileData>>(TILE_SAVE_PATH, data, savePath);
+            if (hex == null)
+                continue;
 
-        ES3.Save<List<Hex3>>(FOG_SAVE_PATH, fogTiles.Keys.ToList(), savePath);
-        ES3.Save<List<Hex3>>(BORDER_SAVE_PATH, borderTiles.Keys.ToList(), savePath);
+            HexTileData hexTileData = new HexTileData
+            {
+                location = hex.hexPosition,
+                tileType = hex.TileType,
+            };
+
+            if (hex.TryGetComponent(out ResourceTile resourceTile))
+            {
+                hexTileData.resourceAmount = resourceTile.ResourceAmount;
+            }
+
+            if (hex.TryGetComponent(out FogGroundTile fogTile))
+                hexTileData.revealed = fogTile.HasBeenRevealed;
+            data.Add(hexTileData);
+        }
+
+
+        List<Hex3> remainingFogTiles = new List<Hex3>();
+        foreach (var keyValuePair in fogTiles)
+        {
+            if(!keyValuePair.Value.isDown)
+                remainingFogTiles.Add(keyValuePair.Key);
+        }
+
+        writer.Write<List<HexTileData>>(TILE_SAVE_PATH, data);
+        writer.Write<List<Hex3>>(BORDER_SAVE_PATH, borderTiles.Keys.ToList());
+        writer.Write<int>(RANDOM_SEED_PATH, RandomizeSeed);
+        writer.Write<System.Random>(RANDOM_PATH, random);
+        writer.Write<List<Hex3>>(FOG_SAVE_PATH, remainingFogTiles);
+        writer.Write<List<Hex3>>(REVEALED_TILE_PATH, revealedLocations.Keys.ToList());
     }
 
-    public void Load(string loadPath)
+    public IEnumerator Load(string loadPath, Action<string> postUpdateMessage)
     {
         if(!ES3.FileExists(loadPath))
         {
             Debug.LogError($"No file found at {loadPath}");
-            return;
+            yield break;
         }
 
-        StartCoroutine(LoadOverTime(loadPath));
+        yield return LoadOverTime(loadPath, postUpdateMessage);
     }
 
-    private IEnumerator LoadOverTime(string loadPath)
+    private IEnumerator LoadOverTime(string loadPath, Action<string> postUpdateMessage)
     {
+        if(ES3.KeyExists(RANDOM_PATH, loadPath))
+        {
+            random = ES3.Load<System.Random>(RANDOM_PATH, loadPath);
+        }
+        if(ES3.KeyExists(RANDOM_SEED_PATH, loadPath))
+        {
+            randomizeSeed = ES3.Load<int>(RANDOM_SEED_PATH, loadPath);
+        }
         //Load regular land tiles
         if (ES3.KeyExists(TILE_SAVE_PATH, loadPath))
         {
@@ -1014,6 +1160,15 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
                     yield return null;
                 HexTile tile = GetNextHexTile(data[i].tileType, false);
                 TryReplaceHex(data[i].location, tile);
+                postUpdateMessage?.Invoke($"Loading {tile.TileType.ToNiceString()} Tile {i + 1} of {data.Count}");
+
+                if(tile.TryGetComponent(out ResourceTile resourceTile))
+                {
+                    resourceTile.SetResourceAmount(data[i].resourceAmount);
+                }
+
+                if (data[i].revealed)
+                    tile.GetComponent<FogGroundTile>().RevealTile();
             }
         }
         else
@@ -1029,8 +1184,9 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
                     yield return null;
                 FogTile fogTile = Instantiate(fogTilePrefab, fogTileData[i], Quaternion.identity);
                 fogTile.transform.SetParent(tileParent);
-                fogTile.transform.Rotate(Vector3.up, HexTileManager.GetNextInt(0, 6) * 60f);
+                fogTile.transform.Rotate(Vector3.up, GetNextInt_Internal(0, 6) * 60f);
                 fogTiles.TryAdd(fogTileData[i], fogTile);
+                postUpdateMessage?.Invoke($"Fog of War {i + 1} of {fogTileData.Count}");
             }
         }
         else
@@ -1046,18 +1202,35 @@ public class HexTileManager : SerializedMonoBehaviour, ISaveData
                     yield return null;
                 GameObject borderTile = Instantiate(borderTilePrefab, borderTileData[i], Quaternion.identity);
                 borderTile.transform.SetParent(tileParent);
-                borderTile.transform.Rotate(Vector3.up, HexTileManager.GetNextInt(0, 6) * 60f);
+                borderTile.transform.Rotate(Vector3.up, GetNextInt_Internal(0, 6) * 60f);
                 borderTiles.TryAdd(borderTileData[i], borderTile);
+                postUpdateMessage?.Invoke($"Border Tile {i + 1} of {borderTileData.Count}");
             }
         }
         else
             Debug.LogError($"No {BORDER_SAVE_PATH} found in {loadPath}");
+
+        if (ES3.KeyExists(REVEALED_TILE_PATH, loadPath))
+        {
+            List<Hex3> revealedLocations = ES3.Load<List<Hex3>>(REVEALED_TILE_PATH, loadPath);
+            for (int i = 0; i < revealedLocations.Count; i++)
+            {
+                HexTileManager.revealedLocations.TryAdd(revealedLocations[i], new List<FogRevealer>());
+            }
+        }
+    }
+
+    public static List<string> GetDataNames()
+    {
+        return new List<string>() { TILE_SAVE_PATH, FOG_SAVE_PATH, BORDER_SAVE_PATH, RANDOM_SEED_PATH, RANDOM_PATH };
     }
 
     public class HexTileData
     {
         public Hex3 location;
         public HexTileType tileType;
+        public int resourceAmount;
+        public bool revealed;
     }
     #endregion
 }

@@ -1,4 +1,5 @@
 
+using Nova;
 using Sirenix.OdinInspector;
 using Sirenix.OdinInspector.Editor;
 using UnityEditor;
@@ -16,7 +17,7 @@ public class HelpfulButtons : OdinEditorWindow
     [ButtonGroup]
     private void StartScene()
     {
-        LoadScene("Assets/Scenes/AlphaStartScene.unity");
+        LoadScene("Assets/Scenes/Start Scene.unity");
     }
 
     [ButtonGroup]
@@ -54,11 +55,32 @@ public class HelpfulButtons : OdinEditorWindow
     {
         Selection.activeObject = AssetDatabase.LoadMainAssetAtPath("Assets/Prefabs/Units/Unit Images.asset");
     }
-
-    [Button]
-    private float HexDistance(Transform a, Transform b)
+    
+    [ButtonGroup("Data")]
+    private void GameSettings()
     {
-        return HelperFunctions.HexRangeFloat(a.position, b.position);
+        Selection.activeObject = AssetDatabase.LoadMainAssetAtPath("Assets/Scripts/Managers/GameSettings.asset");
+    }
+
+    [ButtonGroup("Scene Clean Up")]
+    private void ToggleOffNavigation()
+    {
+        Interactable[] uIBlock2Ds = FindObjectsOfType<Interactable>(true);
+        foreach (Interactable block in uIBlock2Ds)
+        {
+            block.Navigable = false;
+        }
+    }
+
+    [ButtonGroup("Scene Clean Up")]
+    private void HideAllWindows()
+    {
+        WindowPopup[] windows = FindObjectsOfType<WindowPopup>(true);
+
+        foreach (WindowPopup window in windows)
+        {
+            window.CloseWindow();
+        }
     }
 }
 

@@ -7,17 +7,18 @@ using UnityEngine;
 
 public class UnitToolTip : MonoBehaviour //, IPointerEnterHandler, IPointerExitHandler, IPointerClickHandler
 {
-    public static event Action<List<PopUpInfo>, List<PopUpPriorityButton>, PopUpCanToggle, RequestStorageInfo, ReceipeInfo, List<PopUpButtonInfo>, UnitToolTip> openToolTip;
-    public static event Action<List<PopUpInfo>, List<PopUpPriorityButton>, PopUpCanToggle, RequestStorageInfo, ReceipeInfo, List<PopUpButtonInfo>, UnitToolTip> updateToolTip;
+    public static event Action<IOrderedEnumerable<PopUpInfo>, List<PopUpPriorityButton>, PopUpCanToggle, RequestStorageInfo, RecipeInfo, List<PopUpButtonInfo>, UnitToolTip> openToolTip;
+    public static event Action<IOrderedEnumerable<PopUpInfo>, List<PopUpPriorityButton>, PopUpCanToggle, RequestStorageInfo, RecipeInfo, List<PopUpButtonInfo>, UnitToolTip> updateToolTip;
     public static event Action<List<PopUpStats>, UnitToolTip> updateStats;
-    public static event Action<List<PopUpResource>, UnitToolTip> updateResources;
-    public static event Action<List<PopUpInfo>, UnitToolTip> updateInfo;
+    public static event Action<List<PopUpResourceAmount>, UnitToolTip> updateResources;
+    public static event Action<IOrderedEnumerable<PopUpInfo>, UnitToolTip> updateInfo;
     public static event Action<List<PopUpPriorityButton>, UnitToolTip> updateButtons;
     public static event Action<PopUpCanToggle, UnitToolTip> updateToggle;
     public static event Action<RequestStorageInfo, UnitToolTip> updatePriority;
-    public static event Action<ReceipeInfo, RequestStorageInfo, UnitToolTip> updateStorage;
+    public static event Action<RecipeInfo, RequestStorageInfo, UnitToolTip> updateStorage;
+    public static event Action<ITransportResources, UnitToolTip> updateAllowedResources;
 
-    public static event Action<ReceipeInfo, UnitToolTip> updateRecipe;
+    public static event Action<RecipeInfo, UnitToolTip> updateRecipe;
     public static event Action closeToolTip;
     private WaitForSeconds delay = new WaitForSeconds(0.75f);
 
@@ -61,6 +62,8 @@ public class UnitToolTip : MonoBehaviour //, IPointerEnterHandler, IPointerExitH
             usb.connectionChanged -= UpdateStorage;
     }
 
+
+
     private void UnitUnSelected(PlayerUnit unit)
     {
         if(!isActive)
@@ -84,25 +87,54 @@ public class UnitToolTip : MonoBehaviour //, IPointerEnterHandler, IPointerExitH
 
     private void OpenTip()
     {
-        openToolTip?.Invoke(GetPopUpInfos(), GetPriorityButtons(), GetPopUpToggle(), GetStorageInfo(), GetReceipes(), GetPopUpButtons(), this);
+        openToolTip?.Invoke(GetPopUpInfos(), 
+                            GetPriorityButtons(), 
+                            GetPopUpToggle(), 
+                            GetStorageInfo(), 
+                            GetReceipes(), 
+                            GetPopUpButtons(), 
+                            this);
+
         updateResources?.Invoke(GetPopUpResources(), this);
         updateStats?.Invoke(GetPopUpStats(), this);
+        updateAllowedResources?.Invoke(GetResouceTransport(), this);
+        
         //isActive = true;
         //if(this.gameObject.activeInHierarchy)
             StartCoroutine(UpdateTip());
     }
 
+
+
     private IEnumerator UpdateTip()
     {
-        //yield return null; // not needed but helps ensure window is open. reduces fragility due to order of code in OpenTip
+        //update on first frame
+        updateInfo?.Invoke(GetPopUpInfos(), this);
+        updateResources?.Invoke(GetPopUpResources(), this);
+        updateStats?.Invoke(GetPopUpStats(), this);
+        updateRecipe?.Invoke(GetReceipes(), this);
+        yield return null;
+
+        //Then spread out the updates over multiple frames
         while (isActive)
         {
-            //updateToolTip?.Invoke(GetPopUpInfos(), GetPopUpButtons(), GetPopUpToggle(), GetRequestPriority(), this);
             updateInfo?.Invoke(GetPopUpInfos(), this);
-            updateResources?.Invoke(GetPopUpResources(), this);
-            updateStats?.Invoke(GetPopUpStats(), this); 
-            updateRecipe?.Invoke(GetReceipes(), this);
             yield return null;
+            if (isActive)
+            {
+                updateResources?.Invoke(GetPopUpResources(), this);
+                yield return null;
+            }
+            if (isActive)
+            {
+                updateStats?.Invoke(GetPopUpStats(), this);
+                yield return null;
+            }
+            if (isActive)
+            {
+                updateRecipe?.Invoke(GetReceipes(), this);
+                yield return null;
+            }
         }
     }
 
@@ -111,7 +143,7 @@ public class UnitToolTip : MonoBehaviour //, IPointerEnterHandler, IPointerExitH
         updateStorage?.Invoke(GetReceipes(), GetStorageInfo(), this);
     }
 
-    private List<PopUpInfo> GetPopUpInfos()
+    private IOrderedEnumerable<PopUpInfo> GetPopUpInfos()
     {
         List<PopUpInfo> popUpInfos = new List<PopUpInfo>();
         foreach (IHavePopupInfo infoObject in havePopupInfos)
@@ -119,7 +151,7 @@ public class UnitToolTip : MonoBehaviour //, IPointerEnterHandler, IPointerExitH
         
         popUpInfos = popUpInfos.OrderBy(x => x.priority).ToList();
 
-        return popUpInfos;
+        return popUpInfos.OrderBy(x => x.priority);
     }
 
     private List<PopUpPriorityButton> GetPriorityButtons()
@@ -154,16 +186,17 @@ public class UnitToolTip : MonoBehaviour //, IPointerEnterHandler, IPointerExitH
         updateRecipe?.Invoke(GetReceipes(), this);
     }
 
-    private ReceipeInfo GetReceipes()
+    private RecipeInfo GetReceipes()
     {
-        ReceipeInfo receipeInfo = new ReceipeInfo();
+        RecipeInfo receipeInfo = new RecipeInfo();
 
         if (this.TryGetComponent(out IHaveReceipes receipeOwner))
         {
-            receipeInfo.receipes = receipeOwner.GetReceipes().Where(r => r.IsUnlocked).ToList().AsReadOnly();
-            receipeInfo.receipeOwner = receipeOwner;
+            receipeInfo.recipes = receipeOwner.GetReceipes().Where(r => r.IsUnlocked).ToList().AsReadOnly();
+            receipeInfo.recipeOwner = receipeOwner;
             receipeInfo.currentRecipe = receipeOwner.GetCurrentRecipe();
             receipeInfo.efficiency = receipeOwner.GetEfficiency();
+            receipeInfo.upTime = receipeOwner.GetUpTime();
             receipeInfo.timeToProduce = Mathf.Max(0,receipeOwner.GetTimeToProduce());
         }
             
@@ -179,9 +212,9 @@ public class UnitToolTip : MonoBehaviour //, IPointerEnterHandler, IPointerExitH
         return popUpStats;
     }
 
-    private List<PopUpResource> GetPopUpResources()
+    private List<PopUpResourceAmount> GetPopUpResources()
     {
-        List<PopUpResource> popUpResources = new List<PopUpResource>();
+        List<PopUpResourceAmount> popUpResources = new List<PopUpResourceAmount>();
         foreach (var resourceList in resources)
             popUpResources.AddRange(resourceList.GetPopUpResources());
 
@@ -198,6 +231,11 @@ public class UnitToolTip : MonoBehaviour //, IPointerEnterHandler, IPointerExitH
         }
 
         return popUpButtonInfos;
+    }
+
+    private ITransportResources GetResouceTransport()
+    {
+        return this.GetComponent<ITransportResources>();
     }
 
     private void CloseTip()

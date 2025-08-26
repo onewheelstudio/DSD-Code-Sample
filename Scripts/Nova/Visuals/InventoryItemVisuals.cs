@@ -1,4 +1,5 @@
 using Nova;
+using NovaSamples.UIControls;
 
 public class InventoryItemVisuals : ItemVisuals
 {

@@ -18,6 +18,8 @@ public class InteractableControl
     {
         foreach (Interactable interactable in interactables)
         {
+            if(interactable == null)
+                continue;
             interactable.enabled = isInteractable;
         }
     }

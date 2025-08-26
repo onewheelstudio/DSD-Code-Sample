@@ -8,9 +8,9 @@ using Sirenix.OdinInspector;
 public class TileBasedProductivity : ProductivityCondition
 {
     public HexTileType tileType;
-    public override float ProductivityMultiplier(GameObject unit)
+    public override float ProductivityMultiplier(ResourceProductionBehavior rpb)
     {
-        if (HexTileManager.GetHexTileAtLocation(unit.transform.position).TileType == tileType)
+        if (HexTileManager.GetHexTileAtLocation(rpb.Position).TileType == tileType)
             return boost;
         else
             return 1f;

@@ -12,6 +12,8 @@ public class SentryTowerBehavior : UnitBehavior
     {
         fogRevealer = GetComponentInChildren<FogRevealer>(true);
         resourceProductionBehavior = GetComponent<ResourceProductionBehavior>();
+        this.GetComponent<UnitStorageBehavior>().AddDeliverType(ResourceType.Energy);
+
     }
 
     public override void StartBehavior()

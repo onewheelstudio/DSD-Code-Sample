@@ -16,8 +16,7 @@ public class CheatCodeManager : SerializedMonoBehaviour
         PlayerResources ps = FindObjectOfType<PlayerResources>();
         foreach (ResourceType resource in System.Enum.GetValues(typeof(ResourceType)))
         {
-            ps.ChangeStorageLimit(resource, 500);
-            ps.AddResource(resource, 500);
+            ps.AddResource(new ResourceAmount(resource, 500));
         }
     }
 

@@ -9,7 +9,6 @@ public class BuildingTutorialComplete : TriggerBase
     public override void DoTrigger()
     {
         buildingTutorialComplete?.Invoke();
-        Debug.Log("Tutorial Complete Triggered");
     }
 
     public static void TriggerEndOfTutorial()

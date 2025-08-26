@@ -51,7 +51,7 @@ namespace HexGame.Units
 
         private void OnEnable()
         {
-            StartCoroutine(DoRandomRotate());
+            DoRandomRotate();
         }
 
         private void OnDisable()
@@ -85,20 +85,20 @@ namespace HexGame.Units
             if (this.target != null && !this.target.gameObject.activeSelf)
                 this._target = null;
 
-            if (canFire)
-                StartCoroutine(FireEachBarrel(target));
+            if (canFire && DayNightManager.isNight)
+                FireEachBarrel(target);
         }
 
 
-        IEnumerator FireEachBarrel(Unit target)
+        private async void FireEachBarrel(Unit target)
         {
             if (!canFire || target == null)
-                yield break;
+                return;
 
             if(storageBehavior.efficiency <= 0.01f)
             {
                 //MessagePanel.ShowMessage("No workers.", this.gameObject);
-                yield break;
+                return;
             }    
 
             canFire = false;
@@ -128,21 +128,22 @@ namespace HexGame.Units
                 var sequence = DOTween.Sequence();
                 sequence.Append(barrels[i].transform.DOLocalMoveX(startX - 0.00055f, 0.075f).SetEase(Ease.InOutElastic));
                 sequence.Append(barrels[i].transform.DOLocalMoveX(startX, 0.2f, true).SetEase(Ease.Linear));
-                yield return sequence.WaitForCompletion();
+             
+                await sequence.AsyncWaitForCompletion();
             }
 
             DoMuzzleFlash();
-            StartCoroutine(ReloadTimer());
+            ReloadTimer();
         }
 
-        IEnumerator ReloadTimer()
+        private async void ReloadTimer()
         {
             if (canFire)
-                yield break;
+                return;
             else
             {
-                yield return new WaitForSeconds(unit.GetStat(Stat.reloadTime));
-                yield return null; //wait one extra frame avoid errors is reload time is zero.
+                await Awaitable.WaitForSecondsAsync(unit.GetStat(Stat.reloadTime), this.destroyCancellationToken);
+                await Awaitable.NextFrameAsync(this.destroyCancellationToken);//wait one extra frame avoid errors is reload time is zero.
                 canFire = true;
             }
         }
@@ -160,11 +161,11 @@ namespace HexGame.Units
                 barrelLaunchPoints[i] = barrels[i].transform.GetChild(0);
         }
 
-        IEnumerator DoRandomRotate()
+        private async void DoRandomRotate()
         {
-            while(true)
+            while(true && !this.destroyCancellationToken.IsCancellationRequested)
             {
-                yield return new WaitForSeconds(HexTileManager.GetNextInt(1, 5));
+                await Awaitable.WaitForSecondsAsync(HexTileManager.GetNextInt(1, 5), this.destroyCancellationToken);
                 if(this.target == null)
                     RandomRotate();
             }

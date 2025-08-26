@@ -18,7 +18,7 @@ public class SupplyShipManager : MonoBehaviour
         SupplyShipBehavior.supplyShipAdded += AddSupplyShip;
         SupplyShipBehavior.supplyShipRemoved += RemoveSupplyShip;
         //DirectiveSelection.directiveSelected += PlaceRequest;
-        DirectiveMenu.questAdded += PlaceRequest;
+        DirectiveMenu.QuestAdded += PlaceRequest;
     }
 
     private void OnDisable()
@@ -26,7 +26,7 @@ public class SupplyShipManager : MonoBehaviour
         SupplyShipBehavior.supplyShipAdded -= AddSupplyShip;
         SupplyShipBehavior.supplyShipRemoved -= RemoveSupplyShip;
         //DirectiveSelection.directiveSelected -= PlaceRequest;
-        DirectiveMenu.questAdded -= PlaceRequest;
+        DirectiveMenu.QuestAdded -= PlaceRequest;
     }
 
     private void RemoveSupplyShip(SupplyShipBehavior behavior)
@@ -71,7 +71,7 @@ public class SupplyShipManager : MonoBehaviour
                 remainingCapacity = supplyShipCapacity - resourceRequest.Sum(x => x.amount);
             }
 
-            SubRequest subRquest = new SubRequest(resourceRequest, quest, quest.buyOrSell);
+            SubRequest subRquest = new SubRequest(resourceRequest, quest, quest.requestType);
             supplySubRequests.Enqueue(subRquest);
             subRequestAdded?.Invoke(this);
             resourceRequest = new List<ResourceAmount>();
@@ -103,6 +103,8 @@ public class SupplyShipManager : MonoBehaviour
     {
         supplySubRequests.Enqueue(subRequest);
     }
+
+    public HashSet<SupplyShipBehavior> GetSupplyShips() => supplyShips;
 }
 
 [System.Serializable]

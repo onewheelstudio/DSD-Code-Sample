@@ -106,8 +106,9 @@ public class EnemyIndicator : MonoBehaviour
 
     private void SetIndicatiorPositionOnMap(UIBlock block, float angle, bool isFlipped)
     {
+        float uiScaling = screenSpace.ReferenceResolution.x / 1920;
         Vector2 pos = miniMapBackground.transform.localPosition;
-        pos += new Vector2(Mathf.Sin(angle * Mathf.Deg2Rad), Mathf.Cos(angle * Mathf.Deg2Rad)) * offsetAmount;
+        pos += new Vector2(Mathf.Sin(angle * Mathf.Deg2Rad), Mathf.Cos(angle * Mathf.Deg2Rad)) * offsetAmount * uiScaling;
         block.TrySetLocalPosition(pos);
         if(isFlipped)
             block.transform.localRotation = Quaternion.Euler(0, 0, -angle + 180);

@@ -1,12 +1,11 @@
 using HexGame.Grid;
 using HexGame.Resources;
 using HexGame.Units;
-using Nova;
+using NovaSamples.UIControls;
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.UIElements;
 
 public class UnitSelectionManager : MonoBehaviour
 {
@@ -15,50 +14,70 @@ public class UnitSelectionManager : MonoBehaviour
     private static IMove currentMove;
     public static PlayerUnit selectedUnit => _selectedUnit;
     public static PlayerUnitType selectedUnitType => _selectedUnit.unitType;
+    private PlayerUnit playerUnitUnderMouse;
     public static event Action<PlayerUnit> unitSelected;
     public static event Action<PlayerUnit> unitUnSelected;
 
     private UIControlActions uiControls;
-    public static bool addConnection = false;
+    public static bool changingConnections = false;
     public static event Action<PlayerUnit> unitClicked;
+    public static event Action<PlayerUnit> hoverOverUnit;
+    public static event Action<PlayerUnit> unHoverOverUnit;
     private HexTileManager htm;
     private CursorManager cursorManager;
+    private SpaceLaser spaceLaser;
 
+    public static event Action<Hex3, Hex3, PlayerUnit> UnitMoved;
 
     [Header("Special Bits")]
     [SerializeField] private UnitMovementConnection movementConnection;
+    private EnemyCrystalManager ecm;
 
     private void Awake()
     {
         uiControls = new UIControlActions();
-        htm = FindObjectOfType<HexTileManager>();   
-        cursorManager = FindObjectOfType<CursorManager>();
+        htm = FindFirstObjectByType<HexTileManager>();   
+        cursorManager = FindFirstObjectByType<CursorManager>();  
+        spaceLaser = FindFirstObjectByType<SpaceLaser>();
+        ecm = FindFirstObjectByType<EnemyCrystalManager>();
     }
 
     private void OnEnable()
     {
-        uiControls.UI.RightClick.canceled += RightClick;
+        uiControls.UI.RightClick.canceled += RightClickReleased;
+        uiControls.UI.RightClick.started += RightClick;
         uiControls.UI.LeftClick.performed += LeftClick;
 
         uiControls.UI.MoveUnit.performed += ToggleMove;
+        uiControls.UI.CloseWindow.performed += UnitUnSelected;
         uiControls.Enable();
         UnitInfoWindow.moveButtonClicked += ToggleUnitReadyToMove;
         GroupControlManager.MoveToUnit += UnitSelected;
         ControlsManager.UIControlsUpdated += UpdateMovementBindings;
+        WindowPopup.SomeWindowOpened += UnitUnSelected;
+        SpaceLaser.SpaceLaserIsAttacking += UnitUnSelected;
     }
+
+
 
     private void OnDisable()
     {
-        uiControls.UI.RightClick.canceled -= RightClick;
+        uiControls.UI.RightClick.canceled -= RightClickReleased;
+        uiControls.UI.RightClick.started -= RightClick;
         uiControls.UI.LeftClick.performed -= LeftClick;
 
         uiControls.UI.MoveUnit.performed -= ToggleMove;
-        uiControls.Enable();
+        uiControls.UI.CloseWindow.performed -= UnitUnSelected;
+        uiControls.Disable();
 
         UnitInfoWindow.moveButtonClicked -= ToggleUnitReadyToMove;
         GroupControlManager.MoveToUnit -= UnitSelected;
         ControlsManager.UIControlsUpdated -= UpdateMovementBindings;
+        WindowPopup.SomeWindowOpened -= UnitUnSelected;
+        SpaceLaser.SpaceLaserIsAttacking -= UnitUnSelected;
     }
+
+
 
     private void UpdateMovementBindings(string rebinds)
     {
@@ -67,20 +86,48 @@ public class UnitSelectionManager : MonoBehaviour
 
     private void Update()
     {
-        if(movementConnection.gameObject.activeInHierarchy && currentMove != null)
+        //if (movementConnection.gameObject.activeInHierarchy && currentMove != null)
+        Hex3 mouseLocation = HelperFunctions.GetMouseHex3OnPlane();
+        if (currentMove != null && currentMove.ReadyToMove)
         {
-            Hex3 mouseLocation = HelperFunctions.GetMouseHex3OnPlane();
+            movementConnection.gameObject.SetActive(true);
+            cursorManager.CursorOff();
 
             movementConnection.SetStatus(IsValidPlacement(mouseLocation, false) && !currentMove.UnitsAreMoving);
             if(mouseLocation != movementConnection.destination.ToHex3())
             {
-                movementConnection.SetPositions(selectedUnit.transform.position, mouseLocation);
+                HexTile tile = HexTileManager.GetHexTileAtLocation(mouseLocation);
+                if(tile != null && tile.TileType == HexTileType.hill)
+                {
+                    Vector3 location = mouseLocation.ToVector3() + new Vector3(0f, UnitManager.HillOffset, 0f);
+                    movementConnection.SetPositions(selectedUnit.transform.position, location);
+                }
+                else
+                    movementConnection.SetPositions(selectedUnit.transform.position, mouseLocation);
             }
         }
         else if(currentMove == null && movementConnection.gameObject.activeInHierarchy)
         {
             movementConnection.gameObject.SetActive(false);
         }
+
+        //if (_selectedUnit != null)
+        //    return;
+
+        //if(UnitManager.TryGetPlayerUnitAtLocation(mouseLocation, out PlayerUnit playerUnit))
+        //{
+        //    if (playerUnit == playerUnitUnderMouse)
+        //        return;
+
+        //    playerUnitUnderMouse = playerUnit;
+        //    hoverOverUnit?.Invoke(playerUnit);
+        //}
+        //else
+        //{
+        //    if(playerUnitUnderMouse != null)
+        //        unHoverOverUnit?.Invoke(playerUnitUnderMouse);
+        //    playerUnitUnderMouse = null;
+        //}
     }
 
     private void LeftClick(InputAction.CallbackContext context)
@@ -88,30 +135,44 @@ public class UnitSelectionManager : MonoBehaviour
         if (PCInputManager.MouseOverVisibleUIObject())
             return;
 
-        if (addConnection && UnitManager.PlayerUnitAtMouseLocation())
+        if (changingConnections && UnitManager.PlayerUnitAtMouseLocation())
             UnitClickedOn();
         else if (Keyboard.current.shiftKey.isPressed && UnitManager.PlayerUnitAtMouseLocation() && selectedUnit != null)
             AddConnectionToSelected();
+        else if (Keyboard.current.shiftKey.isPressed && selectedUnit != null && PlaceHolderAtLocation(out HexTile hexTile))
+            AddConnectionToSelected(hexTile);
         else if (UnitManager.PlayerUnitAtMouseLocation())
             SelectUnit();
         else if (currentMove != null)
             DoMove(context);
+        else
+            UnitUnSelected();
     }
+
 
 
     private void RightClick(InputAction.CallbackContext context)
     {
-        if (PlaceHolderAtLocation(out HexTile hexTile))
+        if (PlaceHolderAtLocation(out HexTile hexTile) && !htm.IsPlacingTile)
             hexTile.GetComponent<PlaceHolderTileBehavior>().RemovePlaceHolder();
-        else if (_selectedUnit == null)
+    }
+
+
+    private void RightClickReleased(InputAction.CallbackContext context)
+    {
+        if (_selectedUnit == null)
             return;
         else if (Keyboard.current.shiftKey.isPressed && UnitManager.PlayerUnitAtMouseLocation() && selectedUnit != null)
             RemoveConnectionFromSelected();
+        else if (Keyboard.current.shiftKey.isPressed && selectedUnit != null && PlaceHolderAtLocation(out HexTile hexTile))
+            RemoveConnectionFromSelected(hexTile);
         else if (currentMove != null)
             CancelMove();
         else
             UnitUnSelected(context);
     }
+
+
 
     private bool PlaceHolderAtLocation(out HexTile hexTile)
     {
@@ -124,47 +185,91 @@ public class UnitSelectionManager : MonoBehaviour
 
     private void UnitClickedOn()
     {
-        if (UnitManager.TryGetAllPlayerUnitsAtLocation(HelperFunctions.GetMouseHex3OnPlane(), out List<PlayerUnit> playerUnits))
+        if (UnitManager.TryGetPlayerUnitAtLocation(HelperFunctions.GetMouseHex3OnPlane(), out PlayerUnit playerUnit))
         {
-            unitClicked?.Invoke(playerUnits.FirstOrDefault(x => x.unitType != PlayerUnitType.cargoShuttle));
+            unitClicked?.Invoke(playerUnit);
         }
     }
 
     private void AddConnectionToSelected()
     {
-        if (UnitManager.TryGetAllPlayerUnitsAtLocation(HelperFunctions.GetMouseHex3OnPlane(), out List<PlayerUnit> playerUnits))
-        {
-            PlayerUnit playerUnit = playerUnits.FirstOrDefault(x => x.unitType != PlayerUnitType.cargoShuttle);
-            if(playerUnit == null)
-                return;
+        if (!ConnectionDisplayManager.ConnectionsUnlocked)
+            return;
 
+        if (UnitManager.TryGetPlayerUnitAtLocation(HelperFunctions.GetMouseHex3OnPlane(), out PlayerUnit playerUnit))
+        {
             selectedUnit.GetComponent<UnitStorageBehavior>().AddDeliverConnection(playerUnit.GetComponent<UnitStorageBehavior>());
             SFXManager.PlaySFX(SFXType.click);
         }
     }
-    
+
+    private void AddConnectionToSelected(HexTile hexTile)
+    {
+        if (!ConnectionDisplayManager.ConnectionsUnlocked)
+            return;
+
+        selectedUnit.GetComponent<UnitStorageBehavior>().AddDeliverConnection(hexTile.GetComponent<UnitStorageBehavior>());
+        SFXManager.PlaySFX(SFXType.click);
+    }
+
     private void RemoveConnectionFromSelected()
     {
-        if (UnitManager.TryGetAllPlayerUnitsAtLocation(HelperFunctions.GetMouseHex3OnPlane(), out List<PlayerUnit> playerUnits))
-        {
-            PlayerUnit playerUnit = playerUnits.FirstOrDefault(x => x.unitType != PlayerUnitType.cargoShuttle);
-            if(playerUnit == null)
-                return;
+        if (!ConnectionDisplayManager.ConnectionsUnlocked)
+            return;
 
+        if (UnitManager.TryGetPlayerUnitAtLocation(HelperFunctions.GetMouseHex3OnPlane(), out PlayerUnit playerUnit))
+        {
             selectedUnit.GetComponent<UnitStorageBehavior>().RemoveConnectionFromList(playerUnit.GetComponent<UnitStorageBehavior>());
             SFXManager.PlaySFX(SFXType.click);
         }
     }
 
-
-    private void SelectUnit()
+    private void RemoveConnectionFromSelected(HexTile hexTile)
     {
-        if(UnitManager.TryGetAllPlayerUnitsAtLocation(HelperFunctions.GetMouseHex3OnPlane(), out List<PlayerUnit> playerUnits))
         {
-            UnitSelected(playerUnits.FirstOrDefault(x => x.unitType != PlayerUnitType.cargoShuttle).gameObject);
+            if (!ConnectionDisplayManager.ConnectionsUnlocked)
+                return;
+
+            selectedUnit.GetComponent<UnitStorageBehavior>().RemoveConnectionFromList(hexTile.GetComponent<UnitStorageBehavior>());
+            SFXManager.PlaySFX(SFXType.click);
         }
     }
 
+    private void SelectUnit()
+    {
+        if (spaceLaser.IsAttacking)
+            return;
+
+        if(currentMove != null)
+        {
+            currentMove.CancelMove();
+        }
+
+        if(UnitManager.TryGetPlayerUnitAtLocation(HelperFunctions.GetMouseHex3OnPlane(), out PlayerUnit playerUnit))
+        {
+            UnitSelected(playerUnit.gameObject);
+
+            if (playerUnit == null)
+                return;
+
+            if (playerUnit.TryGetComponent(out IMove move))
+            {
+                currentMove = move;
+                movementConnection.gameObject.SetActive(!move.UnitsAreMoving);
+                movementConnection.transform.position = playerUnit.transform.position;
+                move.StartMove();
+                cursorManager.CursorOff();
+            }
+        }
+    }
+
+    private void UnitUnSelected(WindowPopup window)
+    {
+        if (window is InfoToolTipWindow)
+            return;
+
+        CancelMove();
+    }
     private void UnitUnSelected(InputAction.CallbackContext context)
     {
         if(Mouse.current.delta.ReadValue().sqrMagnitude < 5 && context.duration < 0.25f)
@@ -181,9 +286,23 @@ public class UnitSelectionManager : MonoBehaviour
         _selectedUnit = null;
     }
 
-    public void SetUnitSelected(GameObject playerUnit)
+    public void SetUnitSelected(GameObject playerUnitObject)
     {
-        UnitSelected(playerUnit);
+        UnitSelected(playerUnitObject);
+
+        //if we selected a mobile unit we want to start to move
+        PlayerUnit playerUnit = playerUnitObject.GetComponent<PlayerUnit>();
+        if (playerUnit == null)
+            return;
+
+        if (playerUnit.TryGetComponent(out IMove move))
+        {
+            currentMove = move;
+            movementConnection.gameObject.SetActive(!move.UnitsAreMoving);
+            movementConnection.transform.position = playerUnit.transform.position;
+            move.StartMove();
+            cursorManager.CursorOff();
+        }
     }
 
     private void UnitSelected(Transform transform)
@@ -263,11 +382,13 @@ public class UnitSelectionManager : MonoBehaviour
             return;
         }
 
+        UnitMoved?.Invoke(selectedUnit.Location, location, selectedUnit);
         movementConnection.gameObject.SetActive(false);
+        movementConnection.transform.position = location;
         currentMove.DoMove(location);
         cursorManager.CursorOn();
         selectionMarker.transform.position = location.ToVector3() + Vector3.up * 0.05f;
-        currentMove = null;
+        //currentMove = null;
     }
     private void CancelMove()
     {
@@ -308,6 +429,12 @@ public class UnitSelectionManager : MonoBehaviour
                 MessagePanel.ShowMessage($"Can not move onto unrevealed terrain.", this.gameObject);
             return false;
         }
+
+        if (UnitManager.TryGetPlayerUnitAtLocation(location, out PlayerUnit playerUnit))
+            return false;
+
+        if(ecm.IsCrystalNearBy(location, out EnemyCrystalBehavior nearbyCrystal))
+            return false;
 
         return true;
     }

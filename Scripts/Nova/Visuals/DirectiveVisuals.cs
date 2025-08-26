@@ -28,11 +28,15 @@ public class DirectiveVisuals : ItemVisuals
     public float startTime;
     public bool initialized = false;
     public float timeLimit;
+    public TextBlock headerText;
+    public Button markedLocationButton;
 
     [Header("Still other bits")]
     public Button cancelButton;
     private bool isCorporate = false;
+    private bool isAutoTrader = false;
     [SerializeField] private Sprite corporateIcon;
+    [SerializeField] private Sprite autoTraderIcon;
     [SerializeField] private Sprite regularIcon;
 
     public void Initialize()
@@ -48,7 +52,17 @@ public class DirectiveVisuals : ItemVisuals
 
     public void UpdateDirective(DirectiveQuest quest)
     {
+        if(quest == null)
+            return;
+
         isCorporate = quest.isCorporate;
+        isAutoTrader = quest.isAutoTrader;
+        headerText.Text = quest.headerText;
+        markedLocationButton.RemoveClickListeners();
+        markedLocationButton.gameObject.SetActive(!string.IsNullOrEmpty(quest.headerText));
+        if (quest is DevelopResourceDirective drd)
+            markedLocationButton.Clicked += drd.MoveToLocation;
+
         directiveList.SetDataSource(quest.DisplayText());
         SetTime(quest.TimeLimitSeconds, 1f);
 
@@ -75,7 +89,7 @@ public class DirectiveVisuals : ItemVisuals
         }
 
         cancelButton.RemoveClickListeners();
-        cancelButton.clicked += quest.Failed;
+        cancelButton.Clicked += quest.Failed;
     }
 
     private void DisplayDirectives(Data.OnBind<string> evt, DirectiveGoalVisuals target, int index)
@@ -85,6 +99,11 @@ public class DirectiveVisuals : ItemVisuals
         {
             target.icon.SetImage(corporateIcon);
             target.icon.Color = ColorManager.GetColor(ColorCode.repuation);
+        }
+        else if(isAutoTrader)
+        {
+            target.icon.SetImage(autoTraderIcon);
+            target.icon.Color = ColorManager.GetColor(ColorCode.techCredit);
         }
         else
         {

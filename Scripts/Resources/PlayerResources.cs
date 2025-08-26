@@ -9,9 +9,9 @@ using System.Linq;
 
 namespace HexGame.Resources
 {
-    public class PlayerResources : MonoBehaviour
+    public class PlayerResources : MonoBehaviour, ISaveData
     {
-        public static Action<ResourceType, int, int> resourceChange;
+        public static Action<ResourceType, int> resourceChange;
         /// <summary>
         /// Used for ui bar updates as a given interval
         /// </summary>
@@ -38,48 +38,43 @@ namespace HexGame.Resources
         public static Dictionary<ResourceType, int> resourceUsedToday = new Dictionary<ResourceType, int>();
         public static Dictionary<ResourceType, int> resourceUsedYesterday = new Dictionary<ResourceType, int>();
 
-        [SerializeField]
-        private int initialStorageLimit = 0;
-        private static Dictionary<ResourceType, int> maxStorage = new Dictionary<ResourceType, int>();
-
 
         private void OnEnable()
         {
-            GlobalStorageBehavior.gloablStorageAdded += StorageAdded;
-            GlobalStorageBehavior.resourceAdded += ResourceUpdated;
-            GlobalStorageBehavior.resourceRemoved += ResourceUpdated;
-            ResourceSink.resourceLost += ResourceLost;
-            ResourceProductionBehavior.resourceProduced += CountAsProduced;
-            ResourceProductionBehavior.resourceUsed += ResourceUsed;
-            CollectionBehavior.terreneStored += CountAsProduced;
-            PlaceHolderTileBehavior.resourcesUsed += ResourceUsed;
-            WorkerManager.workerConsumedResource += ResourceUsed;
-            BuildingSpotBehavior.resourceConsumed += ResourceUsed;
+            ResourceProductionBehavior.resourceProduced += ResourceProduced;
+            ResourceProductionBehavior.resourceConsumed += ResourceConsumed;
+            ShipStorageBehavior.resourceConsumed += ResourceConsumed;
+            ShipStorageBehavior.resourceImported += ResourceProduced;
+
+            ResourceSink.resourceLost += ResourceConsumed;
+            CollectionBehavior.terreneStored += ResourceProduced;
+            PlaceHolderTileBehavior.resourcesUsed += ResourceConsumed;
+            WorkerManager.workerConsumedResource += ResourceConsumed;
+            BuildingSpotBehavior.resourceConsumed += ResourceConsumed;
 
             ResourceStart.initialResourcesAdded += InitializeResourceBars;
             DayNightManager.transitionToDay += ResetProducedToday;
         }
 
-
-
         private void OnDisable()
         {
-            GlobalStorageBehavior.gloablStorageAdded -= StorageAdded;
-            GlobalStorageBehavior.gloablStorageRemoved -= StorageRemoved;
-            GlobalStorageBehavior.resourceAdded -= ResourceUpdated;
-            GlobalStorageBehavior.resourceRemoved -= ResourceUpdated;
-            ResourceProductionBehavior.resourceProduced -= CountAsProduced;
-            ResourceProductionBehavior.resourceUsed -= ResourceUsed;
-            CollectionBehavior.terreneStored -= CountAsProduced;
-            PlaceHolderTileBehavior.resourcesUsed -= ResourceUsed;
-            WorkerManager.workerConsumedResource -= ResourceUsed;
-            BuildingSpotBehavior.resourceConsumed -= ResourceUsed;
+            ResourceProductionBehavior.resourceProduced -= ResourceProduced;
+            ResourceProductionBehavior.resourceConsumed -= ResourceConsumed;
+            ShipStorageBehavior.resourceConsumed -= ResourceConsumed;
+            ShipStorageBehavior.resourceImported -= ResourceProduced;
+
+            ResourceSink.resourceLost -= ResourceConsumed;
+            CollectionBehavior.terreneStored -= ResourceProduced;
+            PlaceHolderTileBehavior.resourcesUsed -= ResourceConsumed;
+            WorkerManager.workerConsumedResource -= ResourceConsumed;
+            BuildingSpotBehavior.resourceConsumed -= ResourceConsumed;
 
             ResourceStart.initialResourcesAdded -= InitializeResourceBars;
             DayNightManager.transitionToDay -= ResetProducedToday;
+
             StopAllCoroutines();
         }
-
+         
 
         private void Awake()
         {
@@ -88,113 +83,51 @@ namespace HexGame.Resources
             resourceRequested.Clear();
             questResources.Clear();
             InitializeStorage();
+            RegisterDataSaving();
         }
 
         private void InitializeStorage()
         {
-            maxStorage.Clear();
+            if (SaveLoadManager.Loading)
+                return;
+
             foreach (ResourceType resource in System.Enum.GetValues(typeof(ResourceType)))
             {
-                maxStorage.Add(resource, initialStorageLimit);
+                resourceStored.Add(new ResourceAmount(resource, 0));
             }
         }
 
-        public static void SetStorageLimit(ResourceType resouce, int amount)
+        private void ResourceProduced(ResourceAmount amount) => ResourceProduced(null, amount);
+        private void ResourceProduced(ResourceProductionBehavior behavior, ResourceAmount amount)
         {
-            maxStorage[resouce] = amount;
+            AddResource(amount);
+            CountAsProduced(amount);
         }
 
-        [Button]
-        public static int GetStorageLimit(ResourceType resource)
+        private void ResourceConsumed(List<ResourceAmount> resources)
         {
-            return maxStorage[resource];
+            for (int i = 0; i < resources.Count; i++)
+            {
+                ResourceConsumed(resources[i]);
+            }
         }
 
-        /// <summary>
-        /// intended to be used by upgrades to add or subtract amount from max storage
-        /// </summary>
-        /// <param name="resouce"></param>
-        /// <param name="amount"></param>
-        public void ChangeStorageLimit(ResourceType resouce, int amount)
+        private void ResourceConsumed(ResourceAmount amount) => ResourceConsumed(null, amount);
+        private void ResourceConsumed(ResourceProductionBehavior behavior, ResourceAmount amount)
         {
-            if(!maxStorage.TryGetValue(resouce, out int storage))
-                maxStorage.Add(resouce, amount);
+            RemoveResource(amount);
+            CountAsUsed(amount);
+        }
+
+        private void ResourceShipped(SupplyShipBehavior behavior, RequestType requestType, ResourceType resourceType)
+        {
+            if(requestType == RequestType.sell)
+                ResourceConsumed(null, new ResourceAmount(resourceType, SupplyShipManager.supplyShipCapacity));
             else
-            {
-                maxStorage[resouce] += amount;
-                resourceChange?.Invoke(resouce, GetAmountStored(resouce), GetStorageLimit(resouce));
-            }
+                ResourceProduced(null, new ResourceAmount(resourceType, SupplyShipManager.supplyShipCapacity));
         }
 
-        public static int GlobalStorageLimit()
-        {
-            int limit = 0;
-            foreach (ResourceType resource in System.Enum.GetValues(typeof(ResourceType)))
-            {
-                limit += GetStorageLimit(resource);
-            }
-
-            return limit;
-        }
-
-        public static bool TryUseResource(ResourceAmount resource)
-        {
-
-            if (!HasResource(resource))
-                return false;
-
-            UseResource(resource);
-
-            return true;
-        }
-
-        public static bool TryUseAllResources(List<ResourceAmount> resourceList)
-        {
-            if (resourceList.Count == 0)
-                return true;
-
-            if (!HasAllResources(resourceList))
-                return false;
-
-            foreach (var resource in resourceList)
-                UseResource(resource);
-
-            return true;
-        }
-
-        private static bool HasAllResources(List<ResourceAmount> resourceList)
-        {
-            foreach (var resource in resourceList)
-            {
-                if (!HasResource(resource))
-                    return false;
-            }
-
-            return true;
-        }
-        public static bool HasResource(ResourceAmount resource)
-        {
-            if(resource.type == ResourceType.Workers)
-            {
-                if (WorkerManager.availableWorkers >= resource.amount)
-                    return true;
-                else
-                    return false;
-            }
-
-            foreach (var r in resourceStored)
-            {
-                if (r.amount < 0)
-                    Debug.Log($"{r.type} is less than zero");
-
-                if (r.type == resource.type && r.amount >= resource.amount)
-                    return true;
-            }
-
-            return false;
-        }
-
-        public static bool UseResource(ResourceAmount resource)
+        private bool RemoveResource(ResourceAmount resource)
         {
             if (resource.amount < 0)
             {
@@ -212,7 +145,7 @@ namespace HexGame.Resources
                 if (resourceStored[i].type == resource.type)
                 {
                     resourceStored[i] -= resource;
-                    resourceChange?.Invoke(resource.type, resourceStored[i].amount, GetStorageLimit(resource.type));
+                    resourceChange?.Invoke(resource.type, resourceStored[i].amount);
                     return true;
                 }
             }
@@ -220,53 +153,31 @@ namespace HexGame.Resources
             return false;
         }
 
-        public void AddResource(ResourceAmount resource)
+        public void AddResource(List<ResourceAmount> resources)
         {
-            AddResource(resource.type, resource.amount);
+            for (int i = 0; i < resources.Count; i++)
+            {
+                AddResource(resources[i]);
+            }
         }
 
-        public void AddResource(ResourceType type, int amount)
+        public void AddResource(ResourceAmount resource)
         {
-            if(!CanStore(new ResourceAmount(type, amount), out ResourceAmount canStore))
-            {
-                MessagePanel.ShowMessage($"{type.ToNiceString()} storage is full.", null);
-            }
-
-            if (canStore.amount <= 0)
-                return;
-
-            CountAsCollected(canStore);
+            CountAsCollected(resource);
 
             for (int i = 0; i < resourceStored.Count; i++)
             {
-                if (resourceStored[i].type == type)
+                if (resourceStored[i].type == resource.type)
                 {
-                    resourceStored[i] += canStore;
-                    resourceChange?.Invoke(resourceStored[i].type, resourceStored[i].amount, GetStorageLimit(resourceStored[i].type));
+                    resourceStored[i] += resource;
+                    resourceChange?.Invoke(resourceStored[i].type, resourceStored[i].amount);
                     return;
                 }
             }
 
             //if can't be found... why do I keep using lists for this shit??
-            resourceStored.Add(canStore);
-            resourceChange?.Invoke(canStore.type, canStore.amount, GetStorageLimit(canStore.type));
-        }
-
-        public bool CanStore(ResourceAmount wantToStore, out ResourceAmount canStore)
-        {
-            int capacity = GetStorageLimit(wantToStore.type) - GetAmountStored(wantToStore.type);
-
-            if (capacity >= wantToStore.amount)
-            {
-                canStore = wantToStore;
-                return true;
-            }
-            else
-            {
-                canStore.type = wantToStore.type;
-                canStore.amount = capacity;
-                return false;
-            }
+            resourceStored.Add(resource);
+            resourceChange?.Invoke(resource.type, resource.amount);
         }
 
         private void CountAsCollected(ResourceAmount resouce)
@@ -280,12 +191,7 @@ namespace HexGame.Resources
                 questResources.Add(resouce);
         }
 
-        private void CountAsProduced(ResourceAmount amount)
-        {
-            CountAsProduced(null, amount);
-        }
-
-        private void CountAsProduced(ResourceProductionBehavior producer, ResourceAmount resouce)
+        private void CountAsProduced(ResourceAmount resouce)
         {
             if (producedResources.Any(x => x.type == resouce.type))
             {
@@ -312,9 +218,11 @@ namespace HexGame.Resources
         {
             resourceProducedYesterday = new Dictionary<ResourceType, int>(resourceProducedToday);
             resourceUsedYesterday = new Dictionary<ResourceType,int>(resourceUsedToday);
-            foreach (ResourceType resource in Enum.GetValues(typeof(ResourceType)))
+            IList list = Enum.GetValues(typeof(ResourceType));
+            for (int i = 0; i < list.Count; i++)
             {
-                if(resourceProducedToday.TryGetValue(resource, out int amount))
+                ResourceType resource = (ResourceType)list[i];
+                if (resourceProducedToday.TryGetValue(resource, out int amount))
                     resourceProducedToday[resource] = 0;
 
                 if(resourceUsedToday.TryGetValue(resource, out amount))
@@ -339,31 +247,27 @@ namespace HexGame.Resources
                 return 0;
         }
 
-        private void ResourceUpdated(ResourceAmount resource)
+        private void ResourceUpdated(ResourceProductionBehavior rpb, ResourceAmount resource)
         {
-            foreach (var r in resourceStored)
+            for (int i = 0; i < resourceStored.Count; i++)
             {
+                ResourceAmount r = resourceStored[i] + resource;
                 if (r.type == resource.type)
                 {
-                    resourceChange?.Invoke(r.type, r.amount, GetStorageLimit(r.type));
+                    resourceChange?.Invoke(r.type, r.amount);
                 }
             }
         }
 
- 
-        private void ResourceUsed(ResourceProductionBehavior behavior, ResourceAmount resource)
+        private void CountAsUsed(List<ResourceAmount> list)
         {
-            ResourceUsed(resource);
-        }
-        private void ResourceUsed(List<ResourceAmount> list)
-        {
-            foreach (var item in list)
+            for (int i = 0; i < list.Count; i++)
             {
-                ResourceUsed(item);
+                this.CountAsUsed(list[i]);
             }
         }
 
-        private void ResourceUsed(ResourceAmount resource)
+        private void CountAsUsed(ResourceAmount resource)
         {
             if (resourceUsedToday.TryGetValue(resource.type, out int amount))
             {
@@ -393,46 +297,17 @@ namespace HexGame.Resources
         [Button]
         public void RefreshResourceList()
         {
-            resourceScriptableObjects = HelperFunctions.GetScriptableObjects<ResourceTemplate>("Assets/Prefabs/Resource SOs").OrderBy(x => x.type).ToList();
-        }
-
-        private void StorageRemoved(GlobalStorageBehavior gsb)
-        {
-            foreach (ResourceType resource in gsb.GetAllowedTypes())
-            {
-                ChangeStorageLimit(resource, -Mathf.FloorToInt(gsb.GetResourceStorageLimit(resource)));
-            }
-        }
-
-        private void StorageAdded(GlobalStorageBehavior gsb)
-        {
-            foreach (ResourceType resource in gsb.GetAllowedTypes())
-            {
-                if (resource == ResourceType.Workers)
-                    continue;
-
-                ChangeStorageLimit(resource, Mathf.FloorToInt(gsb.GetResourceStorageLimit(resource)));
-            }
+            resourceScriptableObjects = HelperFunctions.GetScriptableObjects<ResourceTemplate>("Assets/ScriptableObjects/Resource SOs").OrderBy(x => x.type).ToList();
         }
 
         public static int GetAmountStored(ResourceType type)
         {
             if (type == ResourceType.Workers)
-                return WorkerManager.availableWorkers;
+                return WorkerManager.AvailableWorkers;
 
-            foreach (var resource in resourceStored)
+            for (int i = 0; i < resourceStored.Count; i++)
             {
-                if (type == resource.type)
-                    return resource.amount;
-            }
-
-            return 0;
-        }
-        
-        public static int GetAmountInTransit(ResourceType type)
-        {
-            foreach (var resource in resourceInTransit)
-            {
+                ResourceAmount resource = resourceStored[i];
                 if (type == resource.type)
                     return resource.amount;
             }
@@ -440,49 +315,9 @@ namespace HexGame.Resources
             return 0;
         }
 
-        public static int TotalStored()
+        public void TryReturnResource(ResourceAmount resourceCapacity)
         {
-            int total = 0;
-            foreach (var resource in resourceStored)
-                total += resource.amount;
-
-            foreach (var resource in resourceInTransit)
-                total += resource.amount;
-
-            foreach (var resource in resourceRequested)
-                total += resource.amount;
-
-            return total;
-        }
-
-        //return total global storage percentage
-        public static float PercentFull()
-        {
-            return  (float)TotalStored()/ (float)GlobalStorageLimit();
-        }
-        
-        public static float PercentFull(ResourceAmount resource)
-        {
-            return  (float)GetAmountStored(resource.type)/ (float)GetStorageLimit(resource.type);
-        }
-
-        public class Resource
-        {
-            public Resource(ResourceType type, int amount)
-            {
-                this.type = type;
-                this.amount = amount;
-            }
-
-            public Resource(ResourceTemplate resource)
-            {
-                this.type = resource.type;
-                this.storageLimit = resource.startingStorage;
-            }
-
-            public ResourceType type;
-            public int amount;
-            public int storageLimit;
+            AddResource(resourceCapacity);
         }
 
         private void ResourceLost(ResourceAmount resource)
@@ -491,8 +326,8 @@ namespace HexGame.Resources
                 WorkerManager.WorkersLost(resource.amount);
             else
             {
-                UseResource(resource);
-                resourceChange?.Invoke(resource.type, resource.amount, GetStorageLimit(resource.type));
+                ResourceConsumed(resource);
+                resourceChange?.Invoke(resource.type, resource.amount);
             }
         }
         private void InitializeResourceBars()
@@ -503,20 +338,87 @@ namespace HexGame.Resources
 
         private IEnumerator UpdateResourceValues()
         {
-            foreach (var resource in resourceStored)
+            for (int i = 0; i < resourceStored.Count; i++)
             {
+                ResourceAmount resource = resourceStored[i];
                 resourceInitialValue?.Invoke(resource.type, resource.amount);
             }
 
             while (true)
             {
-                foreach (var resource in resourceStored)
+                for (int i = 0; i < resourceStored.Count; i++)
                 {
+                    ResourceAmount resource = resourceStored[i];
                     resourceUpdate?.Invoke(resource.type, resource.amount);
                 }
 
                 yield return updateInterval;
             }
+        }
+
+        private const string RESOURCE_SAVE_PATH = "ResourceData";
+
+        public void RegisterDataSaving()
+        {
+            SaveLoadManager.RegisterData(this,2);
+        }
+
+        public void Save(string savePath, ES3Writer writer)
+        {
+            PlayerResourceData playerResourceData = new PlayerResourceData
+            {
+                resourceStored = PlayerResources.resourceStored,
+                questResources = PlayerResources.questResources,
+                producedResources = PlayerResources.producedResources,
+                resourceProducedToday = PlayerResources.resourceProducedToday,
+                resourceProducedYesterday = PlayerResources.resourceProducedYesterday,
+                resourceUsedToday = PlayerResources.resourceUsedToday,
+                resourceUsedYesterday = PlayerResources.resourceUsedYesterday,
+                maxStorage = null
+            };
+
+            writer.Write<PlayerResourceData>(RESOURCE_SAVE_PATH, playerResourceData);
+        }
+
+        public IEnumerator Load(string loadPath, Action<string> postUpdateMessage)
+        {
+            if(ES3.KeyExists(RESOURCE_SAVE_PATH, loadPath))
+            {
+                PlayerResourceData playerResourceData = ES3.Load<PlayerResourceData>(RESOURCE_SAVE_PATH, loadPath);
+
+                //PlayerResources.resourceStored = playerResourceData.resourceStored.CombineLists(PlayerResources.resourceInTransit);
+                //foreach (var resource in PlayerResources.resourceStored)
+                //{
+                //    postUpdateMessage?.Invoke($"Storing {resource.type.ToNiceString()}");
+                //    resourceChange?.Invoke(resource.type, resource.amount);
+                //}
+                PlayerResources.questResources = playerResourceData.questResources;
+                PlayerResources.producedResources = playerResourceData.producedResources;
+                PlayerResources.resourceProducedToday = playerResourceData.resourceProducedToday;
+                PlayerResources.resourceProducedYesterday = playerResourceData.resourceProducedYesterday;
+                PlayerResources.resourceUsedToday = playerResourceData.resourceUsedToday;
+                PlayerResources.resourceUsedYesterday = playerResourceData.resourceUsedYesterday;
+            }
+
+            StartCoroutine(UpdateResourceValues());
+            yield return null;
+        }
+
+        internal static int GetStorageLimit(ResourceType resource)
+        {
+            return 1000;
+        }
+
+        public struct PlayerResourceData
+        {
+            public List<ResourceAmount> resourceStored;
+            public List<ResourceAmount> questResources;
+            public List<ResourceAmount> producedResources;
+            public Dictionary<ResourceType, int> resourceProducedToday;
+            public Dictionary<ResourceType, int> resourceProducedYesterday;
+            public Dictionary<ResourceType, int> resourceUsedToday;
+            public Dictionary<ResourceType, int> resourceUsedYesterday;
+            public Dictionary<ResourceType, int> maxStorage;
         }
     }
 
@@ -542,15 +444,15 @@ namespace HexGame.Resources
         Terrene = 17,
         Thermite = 18,
         SteelPlate = 19,
-        SteelCog = 20,
+        IronCog = 20,
         AlPlate = 21,
         AlCog = 22,
         Hydrogen = 23,
         Nitrogen = 24,
         Oxygen = 25,
         AmmoniumNitrate = 26,
-        cuOre = 27,
-        cuIngot = 28,
+        CuOre = 27,
+        CuIngot = 28,
         CannedFood = 29,
         FuelRod = 30,
         WeaponsGradeUranium = 31,
@@ -562,6 +464,8 @@ namespace HexGame.Resources
         Electronics = 37,
         UraniumShells = 38,
         SulfuricAcid = 39,
+        Biomass = 40,
+        TerraFluxCell = 41,
     }
 
 }

@@ -1,9 +1,7 @@
+using HexGame.Grid;
 using Sirenix.OdinInspector;
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Linq;
 using UnityEngine;
 
 namespace HexGame.Resources
@@ -11,7 +9,7 @@ namespace HexGame.Resources
     [System.Serializable]
     [ManageableData]
     [CreateAssetMenu(menuName = "Hex/Resource Production")]
-    public class ResourceProduction : ScriptableObject, IEqualityComparer<ResourceProduction>
+    public class ResourceProduction : ScriptableObject, IEqualityComparer<ResourceProduction>, ISelfValidator
     {
         [SerializeField]
         public string _niceName;
@@ -45,26 +43,26 @@ namespace HexGame.Resources
         [NonSerialized] private bool isUnlocked = false;
         public bool IsUnlocked => isUnlocked || unlockAtStart;
 
-        public bool CanProduce(GameObject gameObject)
+        public bool CanProduce(ResourceProductionBehavior rpb, Hex3 location)
         {
             foreach (var condition in useConditions)
             {
-                if (!condition.CanUse(gameObject))
+                if (!condition.CanUse(rpb, location))
                      return false;
             }
 
             return true;
         }
 
-        public float ProductivityBoost(GameObject gameObject)
+        public float ProductivityBoost(ResourceProductionBehavior rpb, Hex3 location)
         {
-            if (useConditions.Count > 0 && !CanProduce(gameObject))
+            if (useConditions.Count > 0 && !CanProduce(rpb, location))
                 return Mathf.Infinity;
 
             float boost = 1f;
             foreach (var condition in productivityConditions)
             {
-                boost *= condition.ProductivityMultiplier(gameObject);
+                boost *= condition.ProductivityMultiplier(rpb);
             }
 
             return boost;
@@ -125,16 +123,16 @@ namespace HexGame.Resources
 
         public List<ResourceAmount> GetCost()
         {
-            if(upgradedCost == null || upgradedCost.Count == 0)
-                upgradedCost = new List<ResourceAmount>(cost);
+            if (upgradedCost == null || upgradedCost.Count == 0)
+                return cost;
 
             return upgradedCost;
         }
 
         public List<ResourceAmount> GetProduction()
         {
-            if (upgradedProduction.Count == 0)
-                upgradedProduction = new List<ResourceAmount>(production);
+            if (production.Count == 0 || upgradedProduction.Count == 0)
+                return production;
 
             return upgradedProduction;
         }
@@ -167,6 +165,27 @@ namespace HexGame.Resources
         public void Unlock()
         {
             this.isUnlocked = true;
+        }
+
+        public void Validate(SelfValidationResult result)
+        {
+            foreach (var condition in useConditions)
+            {
+                if (condition == null)
+                {
+                    result.AddError("Use condition is null");
+                    return;
+                }
+            }
+
+            foreach (var condition in productivityConditions)
+            {
+                if (condition == null)
+                {
+                    result.AddError("Productivity condition is null");
+                    return;
+                }
+            }
         }
     }
 }

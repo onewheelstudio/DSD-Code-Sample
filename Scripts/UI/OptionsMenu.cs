@@ -24,14 +24,14 @@ public class OptionsMenu : WindowPopup
 
     private new void OnDisable()
     {
-        uiControls.UI.CloseWindow.performed -= ToggleWindow;
         uiControls.UI.CloseWindow.started -= CheckForOpenWindows;
+        uiControls.UI.CloseWindow.performed -= ToggleWindow;
         base.OnDisable();
     }
     
     public override void CloseWindow()
     {
-        base.CloseWindow();
+        base.CloseWindow(); 
     }
 
     protected void ToggleWindow(InputAction.CallbackContext obj)

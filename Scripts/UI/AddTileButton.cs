@@ -23,13 +23,12 @@ public class AddTileButton : MonoBehaviour
 
     private void OnEnable()
     {
-        
-        button.clicked += AddTile;
+        button.Clicked += AddTile;
     }
 
     private void OnDisable()
     {
-        button.clicked -= AddTile;
+        button.Clicked -= AddTile;
     }
 
     private void AddTile()

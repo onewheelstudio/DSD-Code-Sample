@@ -1,7 +1,6 @@
 public static class GameConstants
 {
     public static string preferencesPath = "GamePrefereneces.es3";   
-    public static string questInfo = "QuestInfo.es3";
     public static float recoverResourcePercent = 1f;
     internal static string techCredits = "TechCredits";
     internal static string StatsPath = "StatsInfo.es3";

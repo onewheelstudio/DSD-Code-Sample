@@ -51,10 +51,6 @@ namespace HexGame.Units
                 statusIndicator?.SetStatus(StatusIndicator.Status.red);
                 return;
             }
-
-            //check needed resources
-            foreach (var resource in resourceSink.resourcesRequired)
-                    storageBehavior.CheckResourceLevels(resource);
         }
 
         private void CheckForResources()

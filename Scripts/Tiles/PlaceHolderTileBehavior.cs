@@ -3,6 +3,7 @@ using HexGame.Units;
 using Sirenix.OdinInspector;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 [RequireComponent(typeof(UnitStorageBehavior))]
@@ -12,19 +13,25 @@ public class PlaceHolderTileBehavior : UnitBehavior, IHavePopupInfo
     private List<ResourceAmount> neededResources = new List<ResourceAmount>();
     private UnitStorageBehavior usb;
     private HexTile hexTile;
+    private MeshRenderer[] meshRenders;
+
+    [Header("Placement Materials")]
+    [SerializeField]
+    private Material goodMaterial;
+    [SerializeField]
+    private Material badMaterial;
+
     public HexTileType TileType => hexTile.TileType;
 
-    public static event Action<PlaceHolderTileBehavior, HexGame.Resources.HexTileType> tileComplete;
+    public static event Action<PlaceHolderTileBehavior, HexTileType> tileComplete;
     public static event Action<List<ResourceAmount>> resourcesUsed;
 
     private void Awake()
     {
         if (hexTile == null)
             hexTile = this.GetComponent<HexTile>();
-    }
 
-    protected void OnValidate()
-    {
+        meshRenders = this.GetComponentsInChildren<MeshRenderer>();
         UpdateAllowedTypes();
     }
 
@@ -40,16 +47,15 @@ public class PlaceHolderTileBehavior : UnitBehavior, IHavePopupInfo
 
         if (usb == null)
             usb = GetComponent<UnitStorageBehavior>();
+        usb.UpdateStoredPosition();
         usb.resourceDelivered += AreAllResoucesDelivered;
-
-        foreach (var resource in neededResources)
-        {
-            usb.MakeDeliveryRequest(resource, true);
-        }
     }
 
     public override void StopBehavior()
     {
+        if (GameStateManager.LeavingScene)
+            return;
+
         if (usb == null)
             usb = GetComponent<UnitStorageBehavior>();
 
@@ -111,13 +117,14 @@ public class PlaceHolderTileBehavior : UnitBehavior, IHavePopupInfo
         if (usb == null)
             usb = GetComponent<UnitStorageBehavior>();
 
-        List<ResourceType> allowedTypes = new List<ResourceType>();
-        foreach (var resource in neededResources)
-        {
-            allowedTypes.Add(resource.type);
-        }
+        //HashSet<ResourceType> allowedTypes = new ();
+        //foreach (var resource in neededResources)
+        //{
+        //    allowedTypes.Add(resource.type);
+        //}
 
-        usb.SetAllowedTypes(allowedTypes);
+        //usb.SetDeliverTypes(allowedTypes);
+        usb.AdjustStorageForBuildCosts(neededResources);
     }
 
     public HexTileType GetTileType()
@@ -130,5 +137,19 @@ public class PlaceHolderTileBehavior : UnitBehavior, IHavePopupInfo
         HexTileManager.RemoveTileAtLocation(this.transform.position.ToHex3());
         this.gameObject.SetActive(false);
         SFXManager.PlaySFX(SFXType.tilePlace);
+    }
+
+    public void UpdateLocationValidity(bool isValidLocation)
+    {
+        if (isValidLocation)
+            SetPlaceHolderMaterial(goodMaterial);
+        else
+            SetPlaceHolderMaterial(badMaterial);
+    }
+
+    private void SetPlaceHolderMaterial(Material material)
+    {
+        foreach (var mr in meshRenders)
+            mr.material = material;
     }
 }

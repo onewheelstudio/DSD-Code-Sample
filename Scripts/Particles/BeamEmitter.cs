@@ -183,7 +183,7 @@ public class BeamEmitter : MonoBehaviour
         {
             // Make particle look toward target.
 
-            Quaternion _lookRotation = Quaternion.LookRotation(beamTarget.position - _ps.transform.position).normalized;
+            Quaternion _lookRotation = Quaternion.LookRotation(beamTarget.position - Vector3.up * 0.1f - _ps.transform.position).normalized;
             _ps.gameObject.transform.rotation = _lookRotation;
 
             // Make shape lenght equal to distance between particle's start and end point.

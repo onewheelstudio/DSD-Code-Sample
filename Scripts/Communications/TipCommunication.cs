@@ -20,4 +20,9 @@ public class TipCommunication : CommunicationBase
     {
         GameTipsWindow.AddTip(this);
     }
+
+    public void AddDirective(DirectiveBase directive)
+    {
+        directivesToUnlock.Add(directive);
+    }
 }

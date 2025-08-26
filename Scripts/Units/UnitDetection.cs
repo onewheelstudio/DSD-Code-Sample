@@ -12,6 +12,8 @@ namespace HexGame.Units
         public bool isPlayerUnit = false;
         [SerializeField]
         private List<Unit> targetList = new List<Unit>();
+        private List<Unit> tempList = new List<Unit>();
+
         [SerializeField]
         public List<EnemyUnitType> typesToDetect = new List<EnemyUnitType>();
         [HideIf("isPlayerUnit")]
@@ -96,7 +98,7 @@ namespace HexGame.Units
         public List<Unit> GetTargetList()
         {
             CleanUpPlayerUnitList();
-            List<Unit> tempList = new List<Unit>();
+            tempList.Clear();
             for (int i = 0; i < targetList.Count; i++)
             {
                 if (!targetList[i].gameObject.activeInHierarchy)
@@ -110,10 +112,6 @@ namespace HexGame.Units
             }   
 
             return tempList;
-
-            //return targetList.Where(target => Hex3.DistanceBetween(target.transform.root.position, this.transform.position) > minRange)
-            //                 .Where(target => Hex3.DistanceBetween(target.transform.root.position, this.transform.position) < maxRange)
-            //                 .ToList();
         }
 
         public bool TargetIsInList(Unit target)

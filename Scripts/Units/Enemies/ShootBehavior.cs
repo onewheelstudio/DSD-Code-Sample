@@ -39,6 +39,11 @@ namespace HexGame.Units
                 unitDetection = this.GetComponentInChildren<UnitDetection>();
         }
 
+        private void OnDisable()
+        {
+            StopAllCoroutines();
+        }
+
         public override void StartBehavior()
         {
             _isFunctional = true;
@@ -71,7 +76,7 @@ namespace HexGame.Units
             StartCoroutine(ReloadTimer());
 
             Vector3 lookAtTarget = target.position;
-            lookAtTarget.y = 0.25f;
+            lookAtTarget.y = 0.25f + GetHillOffset(target);
             this.transform.LookAt(lookAtTarget, Vector3.up);
 
             foreach (var subUnit in enemyGroup.subUnits)
@@ -82,6 +87,14 @@ namespace HexGame.Units
                 projectile.transform.LookAt(lookAtTarget);
                 yield return new WaitForSeconds(Random.Range(0.0f, 0.5f));
             }
+        }
+
+        private float GetHillOffset(Transform target)
+        {
+            HexTile targetTile = HexTileManager.GetHexTileAtLocation(target.position);
+            if (targetTile == null) //not sure why this would happen, but it seems to occasionally :)
+                return 0f;
+            return targetTile.TileType == HexTileType.hill ? UnitManager.HillOffset : 0f;
         }
 
         protected IEnumerator ReloadTimer()

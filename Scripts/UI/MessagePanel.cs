@@ -20,25 +20,39 @@ public class MessagePanel : MonoBehaviour
     [Button]
     public static Message ShowMessage(string message, GameObject messageObject)
     {
+        if (!Application.isPlaying)
+            return null;
+
         if (messagePool == null)
             return null;
 
         GameObject go = messagePool.PullGameObject();
         go.transform.SetParent(messageContainer, false);
         Message messageComponent = go.GetComponent<Message>();
-        messageComponent.SetMessage(message, messageObject);
+        
+        if (SaveLoadManager.Loading)
+            go.SetActive(false);
+        else
+            messageComponent.SetMessage(message, messageObject);
         return messageComponent;
     }
 
     public static Message ShowMessage(MessageData messageData)
     {
+        if (!Application.isPlaying)
+            return null;
+
         if (messagePool == null)
             return null;
 
         GameObject go = messagePool.PullGameObject();
         go.transform.SetParent(messageContainer, false);
         Message messageComponent = go.GetComponent<Message>();
-        messageComponent.SetMessage(messageData);
+
+        if(SaveLoadManager.Loading)
+            go.SetActive(false);
+        else
+            messageComponent.SetMessage(messageData);
         return messageComponent;
     }
 }

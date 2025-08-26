@@ -21,6 +21,10 @@ namespace HexGame.Units
         public event Action reachedDestination;
         [SerializeField] private List<TrailRenderer> trails;
         [SerializeField] private List<GameObject> objectsToToggle;
+        [SerializeField] private ParticleSystem[] particlesToToggle;
+        public event Action<float> movementTime;
+        private Sequence hoverMoveSequence;
+
         private void OnEnable()
         {
             if(this.unit == null)
@@ -32,10 +36,11 @@ namespace HexGame.Units
         private void OnDisable()
         {
             DOTween.Kill(this,true);
+            hoverMoveSequence.Kill();
         }
 
         [Button]
-        public void SetDestination(Vector3 position, bool addRandomness = false)
+        public void SetDestination(Vector3 position)
         {
             if (isMoving)
                 return;
@@ -49,27 +54,27 @@ namespace HexGame.Units
             
             speed = GetStat(Stat.speed);
 
-            StartCoroutine(DoHoverMove(position));
+            DoHoverMove(position, tempHeight);
         }
 
-        private IEnumerator DoHoverMove(Vector3 position)
+        private async Awaitable DoHoverMove(Vector3 position, float moveHeight)
         {
             isMoving = true;
             ToggleObjects(true);
             if ((position - this.transform.position).sqrMagnitude > 0.1f) //attempt to prevent moving up and down if already at destination
             {
                 float moveTime = (this.transform.position - position).magnitude / speed;
-                float verticalTime = 2f * Mathf.Abs(tempHeight) / speed;
+                float verticalTime = 2f * Mathf.Abs(moveHeight) / speed;
                 float totalTime = 0f; //used for the callbacks
-                Vector3 hoverPosition = new Vector3(position.x, tempHeight, position.z);
+                Vector3 hoverPosition = new Vector3(position.x, moveHeight, position.z);
 
-                Sequence hoverMoveSequence = DOTween.Sequence();
+                hoverMoveSequence = DOTween.Sequence();
                 if (transformToAlign != null)
                 {
-                    hoverMoveSequence.Append(transformToAlign.DOLocalRotate(new Vector3(0f, 90f, 0), 0.25f));
+                    hoverMoveSequence.Append(transformToAlign.DOLocalRotate(new Vector3(0f, 90f, -90f), 0.25f));
                     totalTime += 0.25f;
                 }
-                hoverMoveSequence.Append(this.transform.DOMoveY(tempHeight, verticalTime));
+                hoverMoveSequence.Append(this.transform.DOMoveY(moveHeight, verticalTime));
                 totalTime += verticalTime;
 
                 if(lookAtDestination)
@@ -79,7 +84,7 @@ namespace HexGame.Units
                 }
                 if (transformToAlign != null)
                 {
-                    hoverMoveSequence.Append(transformToAlign.DOLocalRotate(new Vector3(0f, 0f, 0), 0.25f));
+                    hoverMoveSequence.Append(transformToAlign.DOLocalRotate(new Vector3(-90f, 90f, -90f), 0.25f));
                     totalTime += 0.25f;
                 }
 
@@ -92,14 +97,19 @@ namespace HexGame.Units
                 //do the final move down
                 if (transformToAlign != null)
                 {
-                    hoverMoveSequence.Append(transformToAlign.DOLocalRotate(new Vector3(0f, 90f, 0), 0.25f));
+                    hoverMoveSequence.Append(transformToAlign.DOLocalRotate(new Vector3(0f, 90f, -90f), 0.25f));
                     totalTime += 0.25f;
                 }
                 hoverMoveSequence.Append(this.transform.DOMoveY(position.y, verticalTime));
                 totalTime += verticalTime;
 
-                yield return hoverMoveSequence.WaitForPosition(totalTime);
+                movementTime?.Invoke(totalTime);
+                await Awaitable.WaitForSecondsAsync(totalTime);
             }
+
+            if (destroyCancellationToken.IsCancellationRequested)
+                return;
+
             isMoving = false;
             ToggleObjects(false);
             reachedDestination?.Invoke();
@@ -134,12 +144,29 @@ namespace HexGame.Units
 
         private void ToggleObjects(bool isOn)
         {
-            if(objectsToToggle == null || objectsToToggle.Count == 0)
-                return;
-
-            foreach (var obj in objectsToToggle)
+            if(objectsToToggle != null)
             {
-                obj.SetActive(isOn);
+                for(int i = 0; i < objectsToToggle.Count; i++)
+                {
+                    if (objectsToToggle[i] == null)
+                    {
+                        Debug.Log($"Null Object on {this.gameObject}", this.gameObject);
+                        continue;
+                    }
+
+                    objectsToToggle[i].SetActive(isOn);
+                }
+            }
+
+            if (particlesToToggle != null)
+            {
+                for (int i = 0; i < particlesToToggle.Length; i++)
+                {
+                    if (isOn)
+                        particlesToToggle[i].Play();
+                    else
+                        particlesToToggle[i].Stop();
+                }
             }
         }
     }

@@ -38,6 +38,7 @@ public class ResourceTileDiscoveredDirective : DirectiveQuest
 
     public override void Initialize()
     {
+        base.Initialize();
         numberExtracted = 0;
         numberRevealed = 0;
 
@@ -84,7 +85,7 @@ public class ResourceTileDiscoveredDirective : DirectiveQuest
                 return HexTileType.oil;
             case ResourceType.Gas:
                 return HexTileType.gas;
-            case ResourceType.cuOre:
+            case ResourceType.CuOre:
                 return HexTileType.cuOre;
             default:
                 return HexTileType.grass;

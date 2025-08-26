@@ -161,9 +161,9 @@ public class WorldMapToolTipWindow : WindowPopup // IPointerExitHandler, ICancel
         Button uiButton = button.GetComponent<Button>();
         button.transform.localScale = Vector3.one;
         uiButton.RemoveAllListeners();
-        uiButton.clicked += () => popUpButton.button?.Invoke();
+        uiButton.Clicked += () => popUpButton.button?.Invoke();
         if (popUpButton.closeWindowOnClick)
-            uiButton.clicked += () => CloseWindow();
+            uiButton.Clicked += () => CloseWindow();
     }
 
     private void ClearText()

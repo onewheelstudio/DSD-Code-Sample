@@ -37,6 +37,8 @@ public class Projectile : MonoBehaviour
     [SerializeField] private GameObject waterImpact;
     private static ObjectPool<ImpactHole> waterImpactPool;
 
+    private Camera mainCamera;
+
     private Vector3 targetLocation
     {
         get
@@ -59,13 +61,22 @@ public class Projectile : MonoBehaviour
             groundImpactPool = new ObjectPool<ImpactHole>(groundImpact, 5);
         if (waterImpact != null)
             waterImpactPool = new ObjectPool<ImpactHole>(waterImpact, 5);
+
+        if(mainCamera == null)
+            mainCamera = Camera.main;
     }
 
     protected void OnEnable()
     {
-        AudioSource audioSource = SFXManager.PlaceSFXAudioSource(this.transform.position);
-        _projectileData.launchSound.PlayClip(audioSource, true);
+        if (IsVisible(this.transform.position))
+        {
+            AudioSource audioSource = SFXManager.PlaceSFXAudioSource(this.transform.position);
+            audioSource.priority = Random.Range(100, 200);
+            _projectileData.launchSound.PlayClip(audioSource, true);
+        }
     }
+
+
 
     protected void OnDisable()
     {
@@ -122,15 +133,17 @@ public class Projectile : MonoBehaviour
         else if (other != null)
             DoDamage(other);
 
+        bool isVisible = IsVisible(this.transform.position);
+
         //reduce the number of explosions for performance reasons
-        if (Random.Range(0f, 1f) < _projectileData.ChanceForExplosion)
+        if (Random.Range(0f, 1f) < _projectileData.ChanceForExplosion && isVisible)
         {
             GameObject explosion = _projectileData.GetExplosion();
             explosion.transform.position = this.transform.position + Vector3.up * _projectileData.explosionOffset;
             explosion.transform.localScale = _projectileData.explosionScale * Vector3.one;
         }
 
-        if(TryGetImpactParticles(out GameObject particles))
+        if(TryGetImpactParticles(out GameObject particles) && isVisible)
         {
             //GameObject impact = Instantiate(impactObject, this.transform.position, Quaternion.Euler(90f,Random.Range(-180,180),0f));
             Vector3 position = particles.transform.position;
@@ -257,5 +270,19 @@ public class Projectile : MonoBehaviour
     {
         startLocation = position.ToHex3();
         this.transform.position = position;
+    }
+
+    private bool IsVisible(Vector3 position)
+    {
+        Vector3 screenPoint = mainCamera.WorldToViewportPoint(position);
+
+        if (screenPoint.z <= 0)
+            return false;
+        if (screenPoint.x > 1 || screenPoint.x < 0)
+            return false;
+        if (screenPoint.y > 1 || screenPoint.y < 0)
+            return false;
+
+        return true;
     }
 }

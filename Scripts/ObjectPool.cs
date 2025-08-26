@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace OWS.ObjectPooling
@@ -32,10 +33,14 @@ namespace OWS.ObjectPooling
         private Stack<T> pooledObjects = new Stack<T>();
         private GameObject prefab;
         private T pooledObject;
+        public bool ToggleObjects = true;
         public int pooledCount
         {
             get
             {
+                if (pooledObjects == null)
+                    return 0;
+
                 return pooledObjects.Count;
             }
         }
@@ -46,18 +51,23 @@ namespace OWS.ObjectPooling
             if (pooledCount > 0)
                 t = pooledObjects.Pop();
             else if(pooledObject != null)
+            {
                 t = Object.Instantiate<T>(pooledObject);
+                t.Initialize(Push);
+            }
             else
+            {
                 t = GameObject.Instantiate(prefab).GetComponent<T>();
+                t.Initialize(Push);
+            }
             
             if (t == null)
             {
-                Debug.LogWarning($"Pooled Object is missing component of type {typeof(T)}");
                 return Pull(); //move on to the next object in the pool
             }
 
-            t.gameObject.SetActive(true); //ensure the object is on
-            t.Initialize(Push);
+            if(ToggleObjects)
+                t.gameObject.SetActive(true); //ensure the object is on
 
             //allow default behavior and turning object back on
             pullObject?.Invoke(t);
@@ -81,7 +91,12 @@ namespace OWS.ObjectPooling
 
         public GameObject PullGameObject()
         {
-            return Pull().gameObject;
+            T t = Pull();
+
+            if (t == null)
+                return null;
+
+            return t.gameObject;
         }
 
         public GameObject PullGameObject(Vector3 position)
@@ -105,7 +120,18 @@ namespace OWS.ObjectPooling
             //create default behavior to turn off objects
             pushObject?.Invoke(t);
 
-            t.gameObject.SetActive(false);
+            if(ToggleObjects)
+                t.gameObject.SetActive(false);
+            else
+                t.transform.position = Vector3.up * 1000;
+        }
+
+        public void AddToPool(int number)
+        {
+           if (number <= 0)
+                return;
+
+            Spawn(number);
         }
 
         private void Spawn(int number)
@@ -114,11 +140,32 @@ namespace OWS.ObjectPooling
 
             for (int i = 0; i < number; i++)
             {
-                t = GameObject.Instantiate(prefab).GetComponent<T>();
+                t = Object.Instantiate<T>(pooledObject);
+                if (ToggleObjects)
+                    t.gameObject.SetActive(false); 
+                else
+                    t.transform.position = Vector3.up * 1000;
+                
+                t.Initialize(Push); //initialize here to avoid double adding to pool - if object is turned off
                 pooledObjects.Push(t);
-                t.gameObject.SetActive(false);
             }
         }
+        
+        //private async Awaitable SpawnAsync(int number)
+        //{
+        //    T t;
+
+        //    for (int i = 0; i < number; i++)
+        //    {
+        //        var spawn = await GameObject.InstantiateAsync(prefab);
+        //        spawn. .GetComponent<T>();
+        //        pooledObjects.Push(t);
+        //        if(ToggleObjects)
+        //            t.gameObject.SetActive(false);
+        //        else
+        //            t.transform.position = Vector3.up * 1000;
+        //    }
+        //}
 
         public void DestroyPoolObjects()
         {

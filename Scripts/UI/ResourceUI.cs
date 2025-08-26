@@ -1,6 +1,7 @@
 using HexGame.Resources;
 using HexGame.Units;
 using Nova;
+using NovaSamples.UIControls;
 using Sirenix.OdinInspector;
 using System;
 using System.Collections.Generic;
@@ -22,6 +23,10 @@ public class ResourceUI : MonoBehaviour
     protected static ResourceHeader resourceHeader;
     [SerializeField] private bool alwaysVisible = false;
 
+    [SerializeField] private Button hoverButton;
+    public static event Action<ResourceType> resourceHovered;
+    public static event Action<ResourceType> resourceUnHovered;
+
     private void Awake()
     {
         bars = barParent.GetComponentsInChildren<UIBlock2D>().Where(x => x.transform != barParent).ToArray();
@@ -29,13 +34,18 @@ public class ResourceUI : MonoBehaviour
         visuals = this.GetComponent<ItemView>().Visuals as InventoryItemVisuals;
         //ToggleChildren(false);
 
-        PlayerResources.resourceUpdate += SetBarValues;
+        PlayerResources.resourceUpdate += SetBarValue;
         PlayerResources.resourceInitialValue += SetBarInitialValues;
-        if(resourceHeader == null)
-            resourceHeader = FindObjectOfType<ResourceHeader>();
+        if (resourceHeader == null)
+            resourceHeader = FindFirstObjectByType<ResourceHeader>();
 
         //ResourceMenu.resourceStarToggled += ResourceStarToggled;
+
+        hoverButton.hover += OnHover;
+        hoverButton.unhover += OnUnHover;
     }
+
+
 
     private void OnDestroy()
     {
@@ -47,31 +57,36 @@ public class ResourceUI : MonoBehaviour
             PlayerUnit.unitRemoved -= UpdateColonistValues;
         }
 
-        PlayerResources.resourceUpdate -= SetBarValues;
+        PlayerResources.resourceUpdate -= SetBarValue;
         PlayerResources.resourceInitialValue -= SetBarInitialValues;
         //ResourceMenu.resourceStarToggled -= ResourceStarToggled;
+
+        hoverButton.hover += OnHover;
+        hoverButton.unhover += OnUnHover;
     }
 
-    private void UpdateUI(ResourceType type, int amount, int storageLimit)
+    private void UpdateUI(ResourceType type, int amount)
     {
         if (this.resourceTemplate == null || type != this.resourceTemplate.type)
             return;
 
-        if(amount < 0)
+        if (amount < 0)
             amount = 0;
-
-        if(storageLimit < 0)
-            storageLimit = 0;
 
         if (type != ResourceType.Workers)
         {
-            visuals.count.Text = $"{Mathf.Min(amount, storageLimit)}";
+            visuals.count.Text = amount.ToString();
             toolTip?.SetOffset(new Vector2(-50, -125));
 
             int amountProduced = PlayerResources.GetAmountProducedYesterday(type);
             int amountUsed = PlayerResources.GetAmountUsedYesderday(type);
-            string infoString = $"Stored: {Mathf.Min(amount, storageLimit)}/{storageLimit}\nUsed: {amountUsed}\nProduced: {amountProduced}";
-            this.toolTip?.SetToolTipInfo($"{resourceTemplate.type.ToNiceString()}", resourceTemplate.icon, infoString);
+            string infoString;
+            if(amountProduced == 0 && amountUsed == 0)
+                infoString = $"Stored: {amount}";
+            else
+                infoString = $"Stored: {amount}\nUsed: {amountUsed}\nProduced: {amountProduced}";
+
+            this.toolTip?.SetToolTipInfo(resourceTemplate.type.ToNiceString(), resourceTemplate.icon, infoString);
 
             if (amount < 10)
             {
@@ -97,27 +112,27 @@ public class ResourceUI : MonoBehaviour
     {
         this.transform.SetAsFirstSibling();
 
-        string colonistValues = WorkerManager.availableWorkers.ToString();
-        colonistValues += $"/{WorkerManager.totalWorkers}";
+        string colonistValues = Mathf.Max(0, WorkerManager.AvailableWorkers).ToString();
+        colonistValues += $"/{WorkerManager.TotalWorkers}";
         colonistValues += $"/{WorkerManager.housingCapacity}";
 
         visuals.count.Text = colonistValues;
         toolTip?.SetOffset(new Vector2(-50, -250));
         string infoString;
 
-        infoString = "Available: " + WorkerManager.availableWorkers.ToString();
-        if (WorkerManager.workersNeeded > 0)
+        infoString = "Available: " + Mathf.Max(0, WorkerManager.AvailableWorkers).ToString();
+        if (WorkerManager.AvailableWorkers <= 0 && WorkerManager.workersNeeded > 0)
             infoString += ("\nNeeded: " + WorkerManager.workersNeeded.ToString()).TMP_Color(ColorManager.GetColor(ColorCode.offPriority));
-        infoString += "\nTotal: " + WorkerManager.totalWorkers.ToString();
+        infoString += "\nTotal: " + WorkerManager.TotalWorkers.ToString();
         infoString += $"\nHousing: {WorkerManager.housingCapacity}";
 
         infoString += $"\nEfficiency: {WorkerManager.globalWorkerEfficiency * 100}%";
         toolTip?.SetToolTipInfo(resourceTemplate.type.ToNiceString(),
                                 resourceTemplate.icon, infoString);
 
-        if (WorkerManager.availableWorkers - WorkerManager.workersNeeded <= 0)
+        if (WorkerManager.AvailableWorkers - WorkerManager.workersNeeded <= 0)
             visuals.count.Color = ColorManager.GetColor(ColorCode.offPriority);
-        else if (WorkerManager.availableWorkers - WorkerManager.workersNeeded < 3)
+        else if (WorkerManager.AvailableWorkers - WorkerManager.workersNeeded < 3)
             visuals.count.Color = ColorManager.GetColor(ColorCode.lowPriority);
         else
             visuals.count.Color = Color.white;
@@ -128,14 +143,14 @@ public class ResourceUI : MonoBehaviour
         //ensure colonists on top
         this.resourceTemplate = resourceTemplate;
         visuals.icon.SetImage(resourceTemplate.icon);
-        visuals.icon.Color =resourceTemplate.resourceColor;
+        visuals.icon.Color = resourceTemplate.resourceColor;
         this.toolTip = this.GetComponentInChildren<InfoToolTip>(true);
         this.toolTip?.SetToolTipInfo($"{resourceTemplate.type.ToNiceString()}", resourceTemplate.icon, string.Empty);
         this.transform.SetAsLastSibling();
         visuals.count.Text = "0";
         //ToggleChildren(false);
 
-        if(this.resourceTemplate.type == ResourceType.Workers)
+        if (this.resourceTemplate.type == ResourceType.Workers)
         {
             WorkerManager.workerStateChanged += UpdateColonistValues;
             UnitManager.unitPlaced += UpdateColonistValues;
@@ -164,22 +179,22 @@ public class ResourceUI : MonoBehaviour
         foreach (var child in children)
         {
             child.SetActive(active);
-            if(!active)
+            if (!active)
                 child.transform.SetAsLastSibling();
         }
     }
 
-    private void SetBarValues(ResourceType type, int arg2)
+    private void SetBarValue(ResourceType type, int amount)
     {
         if (this.resourceTemplate == null || type != this.resourceTemplate.type)
             return;
-            
-        SetBarValues(arg2);
+
+        SetBarValue(amount);
     }
 
     private void SetBarInitialValues(ResourceType type, int amount)
     {
-        if(this.resourceTemplate == null || type != this.resourceTemplate.type)
+        if (this.resourceTemplate == null || type != this.resourceTemplate.type)
             return;
 
         for (int i = 0; i < barValues.Length; i++)
@@ -190,7 +205,7 @@ public class ResourceUI : MonoBehaviour
     }
 
     [Button]
-    private void SetBarValues(int amount)
+    private void SetBarValue(int amount)
     {
         for (int i = 0; i < barValues.Length - 1; i++)
         {
@@ -201,15 +216,40 @@ public class ResourceUI : MonoBehaviour
         float maxValue = barValues.Max(x => x);
         maxValue = Mathf.Max(25, maxValue);
 
-        for(int i = 0; i < bars.Length; i++)
+        for (int i = 0; i < bars.Length; i++)
         {
             bars[i].Size.Y.Percent = barValues[i] / maxValue;
         }
     }
 
-    public void OpenResourceMenu()
+    public void SetBarValues(float[] values)
     {
-        FindObjectOfType<ResourceMenu>().OpenWindow();
+        foreach (var value in values)
+        {
+            SetBarValue((int)value);
+        }
     }
 
+    public void OpenResourceMenu()
+    {
+        if(resourceTemplate.type == ResourceType.Workers)
+            FindFirstObjectByType<WorkerMenu>().OpenWindow();
+        else
+            FindFirstObjectByType<ResourceMenu>().OpenWindow();
+    }
+
+    public float[] GetBarValues()
+    {
+        return barValues;
+    }
+
+    private void OnHover()
+    {
+        resourceHovered?.Invoke(resourceTemplate.type);
+    }
+
+    private void OnUnHover()
+    {
+        resourceUnHovered?.Invoke(resourceTemplate.type);
+    }
 }

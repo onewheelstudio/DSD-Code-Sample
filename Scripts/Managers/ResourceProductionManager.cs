@@ -1,12 +1,12 @@
 using HexGame.Resources;
-using System;
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
 public class ResourceProductionManager : MonoBehaviour
 {
     [SerializeField] private List<ResourceProducers> resourceProducers = new List<ResourceProducers>();
+    private float upTimeCheck = 0;
+    private bool checkUpTime = false;
 
     private void OnEnable()
     {
@@ -22,6 +22,10 @@ public class ResourceProductionManager : MonoBehaviour
 
     private void Update()
     {
+        checkUpTime = Time.timeSinceLevelLoad > upTimeCheck + 1;
+        if (checkUpTime)
+            upTimeCheck = Time.timeSinceLevelLoad;
+
         for (int i = 0; i < resourceProducers.Count; i++)
         {
             DoProduction(resourceProducers[i]);
@@ -30,14 +34,17 @@ public class ResourceProductionManager : MonoBehaviour
 
     private void DoProduction(ResourceProducers producer)
     {
+        if(checkUpTime)
+            producer.resourceProductionBehavior.UpdateUpTime();
+
         if (!producer.resourceProductionBehavior.isFunctional)
             return;
 
         if(producer.resourceProductionBehavior.isProducing && producer.ProductionIsComplete)
         {
-            //One last check. May not be needed.
-            if (!producer.resourceProductionBehavior.CanIProduce())
-                return;
+            ////One last check. May not be needed.
+            //if (!producer.resourceProductionBehavior.CanIProduce())
+            //    return;
 
             producer.resourceProductionBehavior.CreateProducts();
         }
@@ -48,7 +55,6 @@ public class ResourceProductionManager : MonoBehaviour
             producer.resourceProductionBehavior.StartProduction();
             producer.productionTime = producer.resourceProductionBehavior.GetTimeToProduce();
         }
-
     }
 
     private void AddResourceProducer(ResourceProductionBehavior resourceProductionBehavior)

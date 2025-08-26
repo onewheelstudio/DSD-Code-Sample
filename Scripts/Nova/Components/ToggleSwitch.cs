@@ -7,7 +7,7 @@ using NovaSamples.UIControls;
 namespace OWS.Nova
 {
     /// <summary>
-    /// A UI control which reacts to user input and flips an underlying bool to track a <see cref="ToggledOn"/> state as it is clicked.
+    /// A UI control which reacts to user input and flips an underlying bool to track a <see cref="ToggledOn"/> state as it is Clicked.
     /// </summary>
     [RequireComponent(typeof(Interactable))]
     public class ToggleSwitch : UIControl<ToggleSwitchVisuals>

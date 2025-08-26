@@ -7,6 +7,7 @@ public class SetDestination : MonoBehaviour
 	[SerializeField]private Transform target;
 	private bool targetSet = false;
 	IAstarAI ai;
+	public bool HasPath => ai.hasPath;
 
 	void OnEnable()
 	{

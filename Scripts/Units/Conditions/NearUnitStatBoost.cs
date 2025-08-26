@@ -4,6 +4,7 @@ using UnityEngine;
 using HexGame.Resources;
 using HexGame.Grid;
 using HexGame.Units;
+using System;
 
 [CreateAssetMenu(menuName = "Hex/Conditions/Near Unit Stat Boost")]
 public class NearUnitStatBoost : StatBoost
@@ -12,6 +13,7 @@ public class NearUnitStatBoost : StatBoost
     [SerializeField, Range(1, 3)]
     protected int range = 1;
     [SerializeField] private bool allowMultipleBoosts = false;
+    [NonSerialized] private List<Hex3> neighbors = new List<Hex3>();
 
     public override int Boost(GameObject unit)
     {
@@ -20,7 +22,8 @@ public class NearUnitStatBoost : StatBoost
 
         int totalBoost = 0;
 
-        List<Hex3> neighbors = HexTileManager.GetHex3WithInRange(unit.transform.position, 1, range);
+        neighbors.Clear();
+        HexTileManager.GetHex3WithInRange(unit.transform.position, 1, range, ref neighbors);
         foreach (var hex3 in neighbors)
         {
             if (UnitManager.TryGetPlayerUnitAtLocation(hex3, out PlayerUnit playerUnit) && playerUnit.unitType == this.unitType)

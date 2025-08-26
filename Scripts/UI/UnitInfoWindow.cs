@@ -12,7 +12,6 @@ using UnityEngine.InputSystem;
 
 public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler, IPointerEnterHandler
 {
-
     [Header("Settings")]
     [SerializeField] private bool moveToMouse = false;
     private UIBlock2D parentBlock;
@@ -34,7 +33,6 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
     [SerializeField] private UIBlock2D shieldBar;
     [SerializeField] private TextBlock shieldText;
 
-
     [Header("Action Buttons")]
     [SerializeField] private Button moveButton;
     public static event Action moveButtonClicked;
@@ -55,24 +53,47 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
     [SerializeField] private Texture2D lowPrioritySprite;
     [SerializeField] private Texture2D mediumPrioritySprite;
     [SerializeField] private Texture2D highPrioritySprite;
-    public static event Action prorityChanged;
+    [SerializeField] private Button urgentButton;
+    [SerializeField] private UIBlock2D urgentButtonImage;
+    public static event Action priorityChanged;
+    public static event Action<PlayerUnit> urgentPriorityTurnOn;
+    public static event Action<PlayerUnit> urgentPriorityTurnOff;
 
     [Header("Production")]
     [SerializeField]private GameObject productionPanel;
-    [SerializeField] private Dropdown productionDropdown;
+    [SerializeField] private TextBlock currentReceipe;
     [SerializeField] private ListView recipeRequirements;
     [SerializeField] private ListView recipeResults;
     [SerializeField] private TextBlock efficiencyText;
+    [SerializeField] private TextBlock upTimeText;
+    [SerializeField] private UIBlock2D upTimeIcon;
     [SerializeField] private UIBlock2D timerBlock;
+    [SerializeField] private InfoToolTip productionToolTip;
+    [SerializeField] private Button selectReceipeButton;
+    private SelectReceipeWindow selectReceipeWindow;
 
     [Header("Preferred Delivery")]
     [SerializeField] private UIBlock preferredDeliveryPanel;
     [SerializeField] private ListView preferredDeliveryList;
-    [SerializeField] private Button addPreferredDeliveryButton;
+    [SerializeField] private Button addConnectionButton;
+    [SerializeField] private Button removeConnectionButton;
     [SerializeField] private UIBlock2D addConnectionBlock;
+    [SerializeField] private UIBlock2D removeConnectionBlock;
     [SerializeField] private UIBlock2D addingConnectionIcon;
     [SerializeField] private Color addingConnectionColor;
     private Color startingConnectionButtonColor;
+
+    [Header("Shuttle Utilization")]
+    [SerializeField] private UIBlock shuttleUtilizationPanel;
+    [SerializeField] private UIBlock2D shuttleUtilizationBar;
+    [SerializeField] private TextBlock shuttleUtilizationText;
+
+    [Header("Resource Transport")]
+    [SerializeField] private UIBlock allowedResourcePanel;
+    [SerializeField] private GridView allowedResourceList;
+    [SerializeField] private Button changeAllowedResources;
+    private ITransportResources transportResources;
+    private AllowedResourceWindow allowedResourceWindow;
 
     private CargoManager.RequestPriority priority;
 
@@ -95,7 +116,6 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
 
     private PlayerResources playerResources;
     private StatsManager statsManager;
-    private UnitManager unitManager;
     private UnitStorageBehavior currrentUnitStorage;
     private UnitSelectionManager unitSelectionManager;
     [SerializeField] private ColorData colorData;
@@ -109,9 +129,13 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
 
     //cached values
     private List<PopUpStats> popUpStats;
-    private List<PopUpResource> popUpResources;
+    private List<PopUpResourceAmount> popUpResources;
 
     private Camera Camera;
+    /// <summary>
+    /// this time needs to be in game time not real time
+    /// </summary>
+    private float productionTime = 5f;
 
     private void Awake()
     {
@@ -122,6 +146,8 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         unitManager = GameObject.FindObjectOfType<UnitManager>();
         unitSelectionManager = FindFirstObjectByType<UnitSelectionManager>();
         parentBlock = this.GetComponent<UIBlock2D>();
+        selectReceipeWindow = FindFirstObjectByType<SelectReceipeWindow>();
+        allowedResourceWindow = FindFirstObjectByType<AllowedResourceWindow>();
 
         startingConnectionButtonColor = addConnectionBlock.Border.Color;
 
@@ -135,7 +161,11 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         recipeRequirements.AddDataBinder<ResourceAmount, UnitInfoButtonVisuals>(BindResources);
         recipeResults.AddDataBinder<ResourceAmount, UnitInfoButtonVisuals>(BindResources);
         preferredDeliveryList.AddDataBinder<UnitStorageBehavior, PreferredDeliveryVisual>(BindPreferredDelivery);
+
+        allowedResourceList.AddDataBinder<ResourceType, ResourceIconDisplayVisuals>(BindAllowedResources);
+        allowedResourceList.SetSliceProvider(ResourceGridSlice);
     }
+
 
     private new void OnEnable()
     {
@@ -150,17 +180,26 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         UnitToolTip.updatePriority += PopulatePriorityInfo;
 
         UnitToolTip.updateStorage += SetupPreferredDelivery;
-        UnitStorageBehavior.startListeningForConnection += AddButtonOn;
-        UnitStorageBehavior.stopListeningForConnection += AddButtonOff;
+        UnitStorageBehavior.startListeningAddConnection += AddButtonOn;
+        UnitStorageBehavior.stopListeningAddConnection += AddButtonOff;
+        UnitStorageBehavior.startListeningRemoveConnection += RemoveButtonOn;
+        UnitStorageBehavior.stopListeningRemoveConnection += RemoveButtonOff;
 
         UnitToolTip.updateStats += PopulateStats;
         UnitToolTip.updateResources += PopulateResources;
+        UnitToolTip.updateAllowedResources += PopulateAllowedResources;
+        AllowedResourceWindow.AllowedResourcesChanged += PopulateAllowedResources;
 
         UnitToolTip.updateRecipe += SetUpReceipes;
 
         UIBlock2D block = this.GetComponent<UIBlock2D>();
         block.AddGestureHandler<Gesture.OnUnhover, PopUpVisuals>(OnEndHover);
         block.AddGestureHandler<Gesture.OnHover, PopUpVisuals>(OnStartHover);
+
+        selectReceipeButton.Clicked += selectReceipeWindow.ToggleWindow;
+        changeAllowedResources.Clicked += allowedResourceWindow.ToggleWindow;
+
+        novaGroup.UpdateInteractables();
 
         CloseWindow();
     }
@@ -178,22 +217,28 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         UnitToolTip.updatePriority -= PopulatePriorityInfo;
 
         UnitToolTip.updateStorage -= SetupPreferredDelivery;
-        UnitStorageBehavior.startListeningForConnection -= AddButtonOn;
-        UnitStorageBehavior.stopListeningForConnection -= AddButtonOff;
+        UnitStorageBehavior.startListeningAddConnection -= AddButtonOn;
+        UnitStorageBehavior.stopListeningAddConnection -= AddButtonOff;
+        UnitStorageBehavior.startListeningRemoveConnection -= RemoveButtonOn;
+        UnitStorageBehavior.stopListeningRemoveConnection -= RemoveButtonOff;
 
         UnitToolTip.updateStats -= PopulateStats;
         UnitToolTip.updateResources -= PopulateResources;
+        UnitToolTip.updateAllowedResources -= PopulateAllowedResources;
+        AllowedResourceWindow.AllowedResourcesChanged -= PopulateAllowedResources;
 
         UnitToolTip.updateRecipe -= SetUpReceipes;
 
         UIBlock2D block = this.GetComponent<UIBlock2D>();
         block.RemoveGestureHandler<Gesture.OnUnhover, PopUpVisuals>(OnEndHover);
         block.RemoveGestureHandler<Gesture.OnHover, PopUpVisuals>(OnStartHover);
+
+        selectReceipeButton.Clicked -= selectReceipeWindow.ToggleWindow;
+        changeAllowedResources.Clicked -= allowedResourceWindow.ToggleWindow;
     }
 
 
-
-    private void OpenToolTip(List<PopUpInfo> popUpInfos, List<PopUpPriorityButton> popUpButtons, PopUpCanToggle popUpCanToggle, RequestStorageInfo requestStorageInfo, ReceipeInfo receipeInfo, List<PopUpButtonInfo> buttonInfo, UnitToolTip toolTip)
+    private void OpenToolTip(IOrderedEnumerable<PopUpInfo> popUpInfos, List<PopUpPriorityButton> popUpButtons, PopUpCanToggle popUpCanToggle, RequestStorageInfo requestStorageInfo, RecipeInfo receipeInfo, List<PopUpButtonInfo> buttonInfo, UnitToolTip toolTip)
     {
         if (toolTipObject != null && toolTipObject == toolTip)
             return;
@@ -201,13 +246,9 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         PopulateToolTip(popUpInfos, popUpButtons, popUpCanToggle, requestStorageInfo, receipeInfo, buttonInfo, toolTip);
         
         OpenWindow();
-        //UIBlock2D block = this.GetComponent<UIBlock2D>();
-        //block.Position.Y = (Mouse.current.position.ReadValue().y + TooltipOffset().y * block.Size.Y.Value) / canvasScale;
-        //block.Position.X = (Mouse.current.position.ReadValue().x + TooltipOffset().x * block.Size.X.Value) / canvasScale;
-        //this.transform.position = (GetMousePosition() + TooltipOffset()) / canvasScale;
     }
 
-    private void PopulateToolTip(List<PopUpInfo> popUpInfos, List<PopUpPriorityButton> popUpButtons, PopUpCanToggle popUpCanToggle, RequestStorageInfo requestStorageInfo, ReceipeInfo receipeInfo, List<PopUpButtonInfo> buttonInfo, UnitToolTip toolTip)
+    private void PopulateToolTip(IOrderedEnumerable<PopUpInfo> popUpInfos, List<PopUpPriorityButton> popUpButtons, PopUpCanToggle popUpCanToggle, RequestStorageInfo requestStorageInfo, RecipeInfo receipeInfo, List<PopUpButtonInfo> buttonInfo, UnitToolTip toolTip)
     {
         toolTipObject = toolTip;
 
@@ -219,9 +260,28 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         SetupPreferredDelivery(receipeInfo, requestStorageInfo, toolTip);
         SetUpReceipes(receipeInfo, toolTip);
         SetUpButtons(buttonInfo);
+        SetupShuttleUtilization(popUpInfos);
     }
 
-    private void SetUnitImage(List<PopUpInfo> popUpInfos)
+    private void SetupShuttleUtilization(IOrderedEnumerable<PopUpInfo> popUpInfos)
+    {
+        if(popUpInfos.Count(popUpInfos => popUpInfos.infoType == PopUpInfo.PopUpInfoType.shuttleUtilization) == 0)
+        {
+            shuttleUtilizationPanel.gameObject.SetActive(false);
+            return;
+        }
+        else
+        {
+            shuttleUtilizationPanel.gameObject.SetActive(true);
+        }
+
+        PopUpInfo shuttleUtilizationInfo = popUpInfos.FirstOrDefault(x => x.infoType == PopUpInfo.PopUpInfoType.shuttleUtilization);
+        float shuttleUtilization = shuttleUtilizationInfo.objectInfo / 100f;
+        shuttleUtilizationBar.Size.X.Percent = shuttleUtilization;
+        shuttleUtilizationText.Text = $"{Mathf.RoundToInt(shuttleUtilization * 100)}%";
+    }
+
+    private void SetUnitImage(IOrderedEnumerable<PopUpInfo> popUpInfos)
     {
         PlayerUnitType unitType = (PlayerUnitType)popUpInfos.FirstOrDefault(x => x.infoType == PopUpInfo.PopUpInfoType.name 
                                                                             && x.objectInfo != (int)PlayerUnitType.cargoShuttle).objectInfo;
@@ -232,10 +292,11 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         unitImage.SetImage(unitImages.GetPlayerUnitImage(unitType));
     }
 
-    private void PopulateInfo(List<PopUpInfo> popUpInfos, UnitToolTip toolTip)
+    private void PopulateInfo(IOrderedEnumerable<PopUpInfo> popUpInfos, UnitToolTip toolTip)
     {
         toolTipObject = toolTip;
         SetUpText(popUpInfos);
+        SetupShuttleUtilization(popUpInfos);
     }
 
     private void PopulateButtons(List<PopUpPriorityButton> popUpButtons, UnitToolTip toolTip)
@@ -256,12 +317,13 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         SetUpPriorityButton(requestStorageInfo);
     }
 
-    private void SetupPreferredDelivery(ReceipeInfo receipeInfo, RequestStorageInfo requestStorageInfo, UnitToolTip toolTip)
+
+    private void SetupPreferredDelivery(RecipeInfo receipeInfo, RequestStorageInfo requestStorageInfo, UnitToolTip toolTip)
     {
         if(UnitSelectionManager.selectedUnit.unitType == PlayerUnitType.infantry)
             preferredDeliveryPanel.gameObject.SetActive(false);
         else
-            preferredDeliveryPanel.gameObject.SetActive(true);
+            preferredDeliveryPanel.gameObject.SetActive(ConnectionDisplayManager.ConnectionsUnlocked);
 
         if (UnitSelectionManager.selectedUnit == null)
         {
@@ -272,36 +334,60 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         currrentUnitStorage = UnitSelectionManager.selectedUnit.GetComponent<UnitStorageBehavior>();
 
         toolTipObject = toolTip;
-        preferredDeliveryList.SetDataSource(requestStorageInfo.connections); // need to send in the USB not just the list of connections
-        addPreferredDeliveryButton.RemoveClickListeners();
-        addPreferredDeliveryButton.clicked += requestStorageInfo.startAddConnection;
+        preferredDeliveryList.SetDataSource(requestStorageInfo.connections.OrderByDescending(c => c.GetPriority()).ToList()); // need to send in the USB not just the list of connections
+        addConnectionButton.RemoveClickListeners();
+        addConnectionButton.Clicked += requestStorageInfo.startAddConnection;
+        
+        removeConnectionButton.RemoveClickListeners();
+        removeConnectionButton.Clicked += requestStorageInfo.startRemoveConnection;
     }
     private void BindPreferredDelivery(Data.OnBind<UnitStorageBehavior> evt, PreferredDeliveryVisual target, int index)
     {
-        target.label.Text = evt.UserData.GetComponent<PlayerUnit>().unitType.ToNiceString();
-        target.upArrow.RemoveAllListeners();
-        target.downArrow.RemoveAllListeners();
-        target.deleteButton.RemoveAllListeners();
+        if (evt.UserData.TryGetComponent(out PlayerUnit playerUnit))
+            target.label.Text = evt.UserData.GetComponent<PlayerUnit>().unitType.ToNiceString();
+        else if (evt.UserData.TryGetComponent(out HexTile hexTile))
+            target.label.Text = hexTile.TileType.ToNiceString() + " Tile";
+        else
+            target.label.Text = "Connection"; //this shouldn't happen
 
-        target.upArrow.clicked += () => currrentUnitStorage.MoveConnectionUp(index);
-        target.downArrow.clicked += () => currrentUnitStorage.MoveConnectionDown(index);
-        target.deleteButton.clicked += () => currrentUnitStorage.RemoveConnection(index);
+        target.deleteButton.RemoveAllListeners();
+        target.deleteButton.Clicked += () => currrentUnitStorage.RemoveConnection(evt.UserData);
+
+        HashSet<ResourceType> resources = currrentUnitStorage.GetShippedResourceTypes(evt.UserData);
+        List<ResourceTemplate> templateList = new List<ResourceTemplate>();
+
+        foreach (var resource in resources)
+        {
+            if (resource == ResourceType.Workers)
+                continue;
+
+            templateList.Add(playerResources.GetResourceTemplate(resource));
+        }
+        target.AddResources(templateList);
+        target.SetPriorityDisplay(evt.UserData.GetPriority());
     }
 
     private void AddButtonOff(UnitStorageBehavior behavior)
     {
         addConnectionBlock.Border.Color = startingConnectionButtonColor;
-        addingConnectionIcon.Color = Color.white;
     }
 
     private void AddButtonOn(UnitStorageBehavior behavior)
     {
         addConnectionBlock.Border.Color = addingConnectionColor;
-        addingConnectionIcon.Color = addingConnectionColor;
+    }
+    
+    private void RemoveButtonOff(UnitStorageBehavior behavior)
+    {
+        removeConnectionBlock.Border.Color = startingConnectionButtonColor;
     }
 
+    private void RemoveButtonOn(UnitStorageBehavior behavior)
+    {
+        removeConnectionBlock.Border.Color = addingConnectionColor;
+    }
 
-    private void PopulateResources(List<PopUpResource> list, UnitToolTip tip)
+    private void PopulateResources(List<PopUpResourceAmount> list, UnitToolTip tip)
     {
         if(!tip.ShowInventory)
         {
@@ -347,11 +433,43 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         resourceContainer.SetDataSource(resources);
     }
 
+
+    private void PopulateAllowedResources(ITransportResources transportResources) => PopulateAllowedResources(transportResources, null);
+    private void PopulateAllowedResources(ITransportResources transportResources, UnitToolTip tip)
+    {
+        bool showAllowedResources = transportResources != null;
+        this.transportResources = transportResources;
+        allowedResourcePanel.gameObject.SetActive(showAllowedResources);
+        if (!showAllowedResources)
+            return;
+
+        List<ResourceType> allowedResources = transportResources.GetAllowedResources().ToList();
+        allowedResourceList.SetDataSource(allowedResources);
+        allowedResourceWindow.SetTransportStorage(transportResources);
+    }
+
+    private void BindAllowedResources(Data.OnBind<ResourceType> evt, ResourceIconDisplayVisuals target, int index)
+    {
+        var resourceTemplate = playerResources.GetResourceTemplate(evt.UserData);   
+        target.Background.SetImage(resourceTemplate.icon);
+        target.Background.Color = resourceTemplate.resourceColor;
+        target.toolTip.SetToolTipInfo(evt.UserData.ToNiceString(), resourceTemplate.icon);
+    }
+
+
+    private void ResourceGridSlice(int sliceIndex, GridView gridView, ref GridSlice gridSlice)
+    {
+        gridSlice.AutoLayout.Spacing.Value = 5;
+    }
+
     private void BindResources(Data.OnBind<ResourceAmount> evt, UnitInfoButtonVisuals target, int index)
     {
         target.icon.SetImage(playerResources.GetResourceTemplate(evt.UserData.type).icon);
         target.icon.Color = playerResources.GetResourceTemplate(evt.UserData.type).resourceColor;
-        target.infoToolTip.SetToolTipInfo(evt.UserData.type.ToNiceString(), playerResources.GetResourceTemplate(evt.UserData.type).icon,"");
+        int countPerDay = Mathf.Max(0,Mathf.FloorToInt(dayNightManager.DayLength / productionTime) * evt.UserData.amount);
+        string description = countPerDay.ToString()+ " per day";
+        description = TMPHelper.Color(description, ColorManager.GetColor(ColorCode.repuation));
+        target.infoToolTip.SetToolTipInfo(evt.UserData.type.ToNiceString(), playerResources.GetResourceTemplate(evt.UserData.type).icon, description);
 
         if (UnitSelectionManager.selectedUnitType == PlayerUnitType.buildingSpot)
         {
@@ -373,12 +491,24 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         if (UnitSelectionManager.selectedUnitType == PlayerUnitType.buildingSpot)
         {
             PlayerUnitType typeToBuild = UnitSelectionManager.selectedUnit.GetComponent<BuildingSpotBehavior>().unitTypeToBuild;
+            //float cost = (float)unitManager.GetUnitCost(typeToBuild, evt.UserData.type).amount;
             float percent = Mathf.Clamp01((float)evt.UserData.amount / (float)unitManager.GetUnitCost(typeToBuild, evt.UserData.type).amount);
             target.sliderFill.Size.Percent = new Vector2(percent, 1f);
+
+            //target.label.Text = $"{evt.UserData.amount.ToString()}/{cost}";
         }
         else if(evt.UserData.type == ResourceType.Workers)
         {
             float percent = Mathf.Clamp01((float)evt.UserData.amount / UnitSelectionManager.selectedUnit.GetStat(Stat.workers));
+            target.sliderFill.Size.Percent = new Vector2(percent, 1f);
+        }
+        else if(UnitSelectionManager.selectedUnitType == PlayerUnitType.orbitalBarge)
+        {
+            float storageLimit = UnitSelectionManager.selectedUnit.GetComponent<UnitStorageBehavior>().GetResourceStorageLimit(evt.UserData.type);
+            if (storageLimit < 1f)
+                storageLimit = UnitSelectionManager.selectedUnit.GetStat(Stat.maxStorage);
+
+            float percent = Mathf.Clamp01((float)evt.UserData.amount / storageLimit);
             target.sliderFill.Size.Percent = new Vector2(percent, 1f);
         }
         else
@@ -390,16 +520,22 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
 
     private void PopulateStats(List<PopUpStats> list, UnitToolTip tip)
     {
+        if(UnitSelectionManager.selectedUnit == null)
+            return;
+
         float maxHealth = (int)UnitSelectionManager.selectedUnit.GetStat(Stat.hitPoints);
         float currentHealth = (int)UnitSelectionManager.selectedUnit.GetHP();
         healthBar.Size.X.Percent = Mathf.Clamp01(currentHealth / maxHealth);
         healthText.Text = $"{currentHealth}";// / {maxHealth}";
 
         float maxShield = (int)UnitSelectionManager.selectedUnit.GetStat(Stat.shield);
-        shieldParent.gameObject.SetActive(maxShield > 0f);
+        shieldParent.SetActive(maxShield > 0f);
         float currentShield = (int)UnitSelectionManager.selectedUnit.GetShield();
         shieldBar.Size.X.Percent = Mathf.Clamp01(currentShield / maxShield);
         shieldText.Text = $"{currentShield}";// / {maxHealth}";
+
+        if (list == null)
+            return;
 
         if (popUpStats != null && Enumerable.SequenceEqual(popUpStats, list))
             return;
@@ -430,91 +566,121 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         target.infoToolTip.SetToolTipInfo(info.stat.ToNiceString(), info.icon, info.description);
     }
 
-    private void SetUpReceipes(ReceipeInfo receipeInfo, UnitToolTip toolTip)
+    private void SetUpReceipes(RecipeInfo receipeInfo, UnitToolTip toolTip)
     {
-        if (receipeInfo.receipes == null || receipeInfo.receipes.Count == 0)
+        if (receipeInfo.recipes == null || receipeInfo.recipes.Count == 0)
         {
             productionPanel.gameObject.SetActive(false);
             return;
         }
-
-        productionPanel.gameObject.SetActive(true);
-        //intentionally setting rather than adding to the action
-        productionDropdown.ValueChanged = receipeInfo.receipeOwner.SetReceipe;
-        productionDropdown.ValueChanged += toolTip.UpdateRecipes;
-        List<string> recipes = receipeInfo.receipes.Select(x => x.niceName).ToList();
-        productionDropdown.SetOptions(recipes);
-
-        productionDropdown.DropdownData.SelectedIndex = receipeInfo.currentRecipe;
-
-        recipeRequirements.SetDataSource(receipeInfo.receipes[receipeInfo.currentRecipe].GetCost());
-        recipeResults.SetDataSource(receipeInfo.receipes[receipeInfo.currentRecipe].GetProduction());
-
-        int efficiency = Mathf.RoundToInt(receipeInfo.efficiency);
-        //string efficiencyString = $"Efficiency: {Mathf.RoundToInt(receipeInfo.efficiency)}%";
+         
         string timeToProduceString;
+        int efficiency = Mathf.RoundToInt(receipeInfo.efficiency);
+        this.productionTime = receipeInfo.timeToProduce * GameConstants.GameSpeed; //keep time in game time not real time
         if (receipeInfo.timeToProduce <= 0 || receipeInfo.timeToProduce > 1000)
             timeToProduceString = "Time: ---";
         else
-            timeToProduceString = $"Time: {Mathf.RoundToInt(receipeInfo.timeToProduce * 10) / 10f}s";
+            timeToProduceString = $"Time: {this.productionTime.ToString("0.0")}s";
 
-        if (efficiency < 30)
-            timeToProduceString = TMPHelper.Color(timeToProduceString, colorData.GetColor(ColorCode.red));
-        else if (efficiency < 99)
-            timeToProduceString = TMPHelper.Color(timeToProduceString, colorData.GetColor(ColorCode.yellow));
-        else if(efficiency > 100)
-            timeToProduceString = TMPHelper.Color(timeToProduceString, colorData.GetColor(ColorCode.blue));
+        Color efficiencyColor;
+        if (efficiency < 50)
+            efficiencyColor = colorData.GetColor(ColorCode.red);
+        else if (efficiency < 85)
+            efficiencyColor = colorData.GetColor(ColorCode.yellow);
+        else if (efficiency > 110)
+            efficiencyColor = colorData.GetColor(ColorCode.techCredit);
         else
-            timeToProduceString = TMPHelper.Color(timeToProduceString, Color.white);
+            efficiencyColor = Color.white;
 
-        efficiencyText.Text = timeToProduceString;
-        float timeLeft = Time.time - receipeInfo.receipeOwner.GetStartTime();
+        efficiencyText.Text = TMPHelper.Color(timeToProduceString, efficiencyColor);
+        timerBlock.Color = efficiencyColor;
+        float timeLeft = Time.time - receipeInfo.recipeOwner.GetStartTime();
         timerBlock.RadialFill.FillAngle = 360f * (receipeInfo.timeToProduce - timeLeft) / receipeInfo.timeToProduce;
+
+        upTimeText.Text = Mathf.RoundToInt(receipeInfo.upTime * 100).ToString() + "%";
+        if(receipeInfo.upTime > 0.85f)
+            upTimeIcon.Color = ColorManager.GetColor(ColorCode.green);
+        else if(receipeInfo.upTime > 0.60f)
+            upTimeIcon.Color = ColorManager.GetColor(ColorCode.yellow);
+        else
+            upTimeIcon.Color = ColorManager.GetColor(ColorCode.red);
+
+        string workerEfficiency = Mathf.RoundToInt(WorkerManager.globalWorkerEfficiency * 100).ToString();
+        string toolTipText = $"Production Time: {timeToProduceString}\nBuilding Efficiency: {efficiency.ToString()}%\nWorker Efficiency: {workerEfficiency}%\nUp Time: {Mathf.RoundToInt(receipeInfo.upTime * 100)}%";
+        productionToolTip.SetToolTipInfo("Production Stats", toolTipText);
+
+        if (selectReceipeWindow.SetRecipes(receipeInfo))
+        {
+            productionPanel.gameObject.SetActive(true);
+            currentReceipe.Text = receipeInfo.recipes[receipeInfo.currentRecipe].niceName;
+            recipeRequirements.SetDataSource(receipeInfo.recipes[receipeInfo.currentRecipe].GetCost());
+            recipeResults.SetDataSource(receipeInfo.recipes[receipeInfo.currentRecipe].GetProduction());
+        }
     }
 
     private void SetUpPriorityButton(RequestStorageInfo requestPriority)
     {
         if (requestPriority.setPriority == null)
+        {
             priorityButtonImage.gameObject.SetActive(false);
+            urgentButton.gameObject.SetActive(false);
+        }
         else
+        {
             priorityButtonImage.gameObject.SetActive(true);
+            urgentButton.gameObject.SetActive(true);
+        }
 
         priorityButton.RemoveAllListeners(); //this is important. dumb ass.
-        priorityButton.clicked += () => TogglePriority(requestPriority);
-        //priorityButton.clicked += () => requestPriority.setPriority(priority);
-        this.requestPriority = requestPriority;
+        priorityButton.Clicked += () => TogglePriority(requestPriority);
         SetPriorityDisplay(requestPriority);
 
+        urgentButton.RemoveAllListeners();
+        urgentButton.Clicked += () => ToggleUrgentPriority(requestPriority);
+        urgentButtonImage.Color = requestPriority.getPriority() == CargoManager.RequestPriority.urgent ? colorData.GetColor(ColorCode.urgentDelivery) : Color.white;
     }
-    private void SetOffPriority(InputAction.CallbackContext obj)
-    {
-        requestPriority.setPriority(CargoManager.RequestPriority.off);
-    }
-    private void SetLowPriority(InputAction.CallbackContext obj)
-    {
-        requestPriority.setPriority(CargoManager.RequestPriority.off);
 
-    }
-    private void SetMediumPriority(InputAction.CallbackContext obj)
+    private void ToggleUrgentPriority(RequestStorageInfo requestPriority)
     {
-        requestPriority.setPriority(CargoManager.RequestPriority.off);
-    }
-    private void SetHighPriority(InputAction.CallbackContext obj)
-    {
-        priorityButton.clicked += () => requestPriority.setPriority(CargoManager.RequestPriority.off);
+        PlayerUnit playerUnit = toolTipObject.GetComponent<PlayerUnit>();
 
+        if (requestPriority.getPriority() == CargoManager.RequestPriority.urgent)
+        {
+            requestPriority.revertPrioity();
+            SetPriorityDisplay(requestPriority);
+            urgentPriorityTurnOff?.Invoke(playerUnit);
+            priorityChanged?.Invoke();
+            urgentButtonImage.Color = Color.white;
+            MessagePanel.ShowMessage($"{playerUnit.unitType.ToNiceString()} urgent delivery canceled", toolTipObject.gameObject);
+        }
+        else
+        {
+            urgentPriorityTurnOn?.Invoke(playerUnit);
+            priorityChanged?.Invoke();
+            urgentButtonImage.Color = colorData.GetColor(ColorCode.urgentDelivery);
+            MessagePanel.ShowMessage($"{playerUnit.unitType.ToNiceString()} set to urgent delivery", toolTipObject.gameObject);
+        }
     }
+
     private void TogglePriority(RequestStorageInfo requestPriority)
     {
         //toggle through enum and roll over when getting to the end of the enum
+        if (requestPriority.getPriority() == CargoManager.RequestPriority.urgent)
+        {
+            urgentPriorityTurnOff?.Invoke(UnitSelectionManager.selectedUnit);
+            urgentButtonImage.Color = Color.white;
+            requestPriority.revertPrioity();
+            MessagePanel.ShowMessage($"{UnitSelectionManager.selectedUnit.unitType.ToNiceString()} urgent delivery canceled", toolTipObject.gameObject);
+        }
+
         requestPriority.priority++;
-        if ((int)requestPriority.priority > System.Enum.GetValues(typeof(HexGame.Resources.CargoManager.RequestPriority)).Length - 1)
-            requestPriority.priority = (CargoManager.RequestPriority)0;
+        if (requestPriority.priority > CargoManager.RequestPriority.high)
+            requestPriority.priority = CargoManager.RequestPriority.off;
         this.priority = requestPriority.priority;
         requestPriority.setPriority(requestPriority.priority);
 
         SetPriorityDisplay(requestPriority);
-        prorityChanged?.Invoke();
+        priorityChanged?.Invoke();
         MessagePanel.ShowMessage($"{UnitSelectionManager.selectedUnit.unitType.ToNiceString()} priority set to {requestPriority.priority}", toolTipObject.gameObject);
     }
 
@@ -543,9 +709,9 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         }
     }
 
-    private void SetUpText(List<PopUpInfo> popUpInfos)
+    private void SetUpText(IOrderedEnumerable<PopUpInfo> popUpInfos)
     {
-        if (popUpInfos == null || popUpInfos.Count == 0)
+        if (popUpInfos.Count() == 0)
         {
             unitName.Text = "";
             return;
@@ -571,9 +737,11 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         deleteButton.RemoveClickListeners();
 
         if (toolTipObject.gameObject.TryGetComponent(out PlayerUnit unit))
-            deleteButton.clicked += () => unit.DeleteUnit();
+            deleteButton.Clicked += () => unit.DeleteUnit();
         else
-            deleteButton.clicked += () => Destroy(toolTipObject.gameObject);
+            deleteButton.Clicked += () => Destroy(toolTipObject.gameObject);
+
+        deleteButton.Clicked += CloseWindow;
 
         deleteButton.gameObject.SetActive(unit.unitType != PlayerUnitType.hq);
 
@@ -581,24 +749,32 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         {
             switch (buttonInfo.buttonType)
             {
-                case ButtonType.move:
-                    moveButton.gameObject.SetActive(true);
-                    moveButton.UnHide();
-                    moveButton.RemoveClickListeners();
-                    moveButton.clicked += () => moveButtonClicked?.Invoke();
-                    break;
+                //case ButtonType.move:
+                //    moveButton.gameObject.SetActive(true);
+                //    moveButton.UnHide();
+                //    moveButton.RemoveClickListeners();
+                //    moveButton.Clicked += () => moveButtonClicked?.Invoke();
+                //    break;
                 case ButtonType.addUnit:
                     addUnitButton.gameObject.SetActive(true);
                     addUnitButton.UnHide();
                     addUnitButton.RemoveClickListeners();
-                    addUnitButton.clicked += buttonInfo.buttonAction;
+                    addUnitButton.Clicked += buttonInfo.buttonAction;
                     break;
                 case ButtonType.removeUnit:
                     removeUnitButton.gameObject.SetActive(true);
                     removeUnitButton.UnHide();
                     removeUnitButton.RemoveClickListeners();
-                    removeUnitButton.clicked += buttonInfo.buttonAction;
+                    removeUnitButton.Clicked += buttonInfo.buttonAction;
                     break;
+                case ButtonType.connections:
+                    addConnectionButton.gameObject.SetActive(true && ConnectionDisplayManager.ConnectionsUnlocked);
+                    addConnectionButton.UnHide();
+
+                    removeConnectionButton.gameObject.SetActive(true && ConnectionDisplayManager.ConnectionsUnlocked);
+                    removeConnectionButton.UnHide();
+                    break;
+
                 default:
                     break;
             }
@@ -614,7 +790,10 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         addUnitButton.gameObject.SetActive(false);
         removeUnitButton.Hide();
         removeUnitButton.gameObject.SetActive(false);
-        //launchButton.Hide();
+        addConnectionButton.Hide();
+        addConnectionButton.gameObject.SetActive(false);
+        removeConnectionButton.Hide();
+        removeConnectionButton.gameObject.SetActive(false);
     }
 
     private void SetupActiveIndicator(PopUpCanToggle popUpCanToggle)
@@ -625,8 +804,8 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
             activeIndicatorUIBlock.DOColor(inactiveColor, 0.25f);
 
         activityButton.RemoveAllListeners();
-        activityButton.clicked += () => popUpCanToggle.toggleAction();
-        activityButton.clicked += () => ToggleIndicator();
+        activityButton.Clicked += () => popUpCanToggle.toggleAction();
+        activityButton.Clicked += () => ToggleIndicator();
     }
 
     private void ToggleIndicator()
@@ -635,38 +814,6 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
             activeIndicatorUIBlock.DOColor(inactiveColor, 0.25f);
         else
             activeIndicatorUIBlock.DOColor(activeColor, 0.25f);
-    }
-
-    private void SetUpButton(PopUpPriorityButton popUpButton)
-    {
-        //GameObject button = buttonPool.PullGameObject();
-
-        //if (!buttonList.Contains(button))
-        //{
-        //    buttonList.Add(button);
-        //    button.transform.SetParent(buttonContainer);
-        //}
-
-        //button.GetComponentInChildren<TextBlock>().Text = popUpButton.displayName;
-
-        //Button uiButton = button.GetComponent<Button>();
-        //button.transform.localScale = Vector3.one;
-        //uiButton.RemoveAllListeners();
-        //uiButton.clicked += () => popUpButton.button?.Invoke();
-        //if (popUpButton.closeWindowOnClick)
-        //    uiButton.clicked += () => CloseWindow();
-    }
-
-    private void ClearText()
-    {
-        unitName.Text = string.Empty;
-        //tooltipStats.Text = string.Empty;
-        //tooltipStorage.Text = string.Empty;
-    }
-
-    private Vector3 GetMousePosition()
-    {
-        return new Vector3(Mouse.current.position.ReadValue().x, Mouse.current.position.ReadValue().y, 0f);
     }
 
     private void CloseWindow(bool isInEditMode)
@@ -683,13 +830,16 @@ public class UnitInfoWindow : WindowPopup // IPointerExitHandler, ICancelHandler
         if (clipMask == null)
             clipMask = this.GetComponent<ClipMask>();
 
+        novaGroup.UpdateInteractables();
+
         if (Application.isPlaying)
             clipMask.DoFade(0f, 0.1f);
         else
             clipMask.SetAlpha(0f);
 
         //make sure the dropdown isn't open for the next unit
-        productionDropdown.Collapse();
+        selectReceipeWindow.CloseWindow();
+        allowedResourceWindow.CloseWindow();
         
         isOpen = false;
         //clipMask.interactable = false;

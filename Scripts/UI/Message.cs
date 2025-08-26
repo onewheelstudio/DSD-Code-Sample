@@ -49,7 +49,8 @@ public class Message : UIControl<MessageVisuals>
         messageVisuals.textBlock.Color = Color.white;
         clipMask.DoFade(1f, fadeInTime);
         SFXManager.PlaySFX(SFXType.message);
-        StartCoroutine(TurnOff());
+        if(this.gameObject.activeInHierarchy) //rare case of the message panel being turned off
+            StartCoroutine(TurnOff());
     }
 
 

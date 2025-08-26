@@ -1,8 +1,8 @@
 using Nova;
-using UnityEngine;
-using UnityEngine.Events;
 using Sirenix.OdinInspector;
 using System;
+using UnityEngine;
+using UnityEngine.Events;
 
 namespace NovaSamples.UIControls
 {
@@ -96,6 +96,7 @@ namespace NovaSamples.UIControls
         }
         [SerializeField] private bool integerValues = false;
         [ShowIf("integerValues"), SerializeField] private int unitMultiplier = 1;
+        public int UnitMultiplier => unitMultiplier;
         [ShowIf("integerValues"), SerializeField] private bool showMaxValue = false;
 
         [SerializeField]
@@ -132,6 +133,12 @@ namespace NovaSamples.UIControls
             View.UIBlock.RemoveGestureHandler<Gesture.OnDrag, SliderVisuals>(HandleSliderDragged);
             View.UIBlock.RemoveGestureHandler<Gesture.OnCancel, SliderVisuals>(SliderVisuals.HandlePressCanceled);
             View.UIBlock.RemoveGestureHandler<Navigate.OnDirection, SliderVisuals>(HandleSliderAdjusted);
+        }
+
+        public void RemoveAllListeners()
+        {
+            OnValueChanged.RemoveAllListeners();
+            ValueChanged = null;
         }
 
         /// <summary>
@@ -238,6 +245,10 @@ namespace NovaSamples.UIControls
                 if(integerValues && showMaxValue)
                 {
                     sliderVisuals.Units.Text = string.Format(unitsFormat, max * unitMultiplier);
+                }
+                else if (integerValues)
+                {
+                    sliderVisuals.Units.Text = string.Format(unitsFormat, Value * unitMultiplier);
                 }
                 else
                 {

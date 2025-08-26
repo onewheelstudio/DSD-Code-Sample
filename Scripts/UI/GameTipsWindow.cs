@@ -31,8 +31,10 @@ public class GameTipsWindow : WindowPopup
     private void DisplayTips(Data.OnBind<TipCommunication> evt, ButtonVisuals target, int index)
     {
         target.Label.Text = evt.UserData.tipHint;
-        target.Background.GetComponent<Button>().OnClicked.RemoveAllListeners();
-        target.Background.GetComponent<Button>().OnClicked.AddListener(() => ReadTip(evt.UserData, target));
+        Button button = target.Background.GetComponent<Button>();
+        button.RemoveAllListeners();
+        button.Clicked +=  () => ReadTip(evt.UserData, target);
+        button.Clicked += () => button.RemoveAllListeners(); //only allow one click
     }
 
     public static void AddTip(TipCommunication tip)
@@ -41,7 +43,7 @@ public class GameTipsWindow : WindowPopup
             return;
 
         if(instance == null)
-            instance = FindObjectOfType<GameTipsWindow>();
+            instance = FindFirstObjectByType<GameTipsWindow>();
 
         instance.AddTip(tip);
     }
@@ -50,11 +52,12 @@ public class GameTipsWindow : WindowPopup
     {
         tips.Add(tip);
         tipList.SetDataSource(tips);
+        SFXManager.PlaySFX(SFXType.DirectiveAdded);
     }
 
     private void ReadTip(TipCommunication tip, ButtonVisuals visuals)
     {
-        //clear tip if right clicked
+        //clear tip if right Clicked
         if(Mouse.current.rightButton.wasPressedThisFrame || Mouse.current.rightButton.wasReleasedThisFrame)
         {
             RemoveTip(tip);
@@ -62,7 +65,7 @@ public class GameTipsWindow : WindowPopup
         }
 
         visuals.Label.Text = "Waiting to Play";
-        CommunicationMenu.AddCommunication(tip, false, () => RemoveTip(tip));
+        CommunicationMenu.AddCommunication(tip, true, () => RemoveTip(tip));
     }
 
     private void RemoveTip(TipCommunication tip)

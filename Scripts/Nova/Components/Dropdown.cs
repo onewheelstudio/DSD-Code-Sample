@@ -82,15 +82,15 @@ namespace NovaSamples.UIControls
 
         /// <summary>
         /// Handle a <see cref="DropdownVisuals"/> object in the <see cref="ListView">
-        /// being clicked, and either expand or collapse it accordingly.
+        /// being Clicked, and either expand or collapse it accordingly.
         /// </summary>
         /// <param name="evt">The click event data.</param>
-        /// <param name="dropdownControl">The <see cref="ItemVisuals"/> object which was clicked.</param>
+        /// <param name="dropdownControl">The <see cref="ItemVisuals"/> object which was Clicked.</param>
         private void HandleDropdownClicked(Gesture.OnClick evt, DropdownVisuals dropdownControl)
         {
             if (evt.Receiver.transform.IsChildOf(dropdownControl.OptionsView.transform))
             {
-                // The clicked object was not the dropdown itself but rather a list item within the dropdown.
+                // The Clicked object was not the dropdown itself but rather a list item within the dropdown.
                 // The dropdownControl itself will handle this event, so we don't need to do anything here.
                 return;
             }
@@ -110,14 +110,14 @@ namespace NovaSamples.UIControls
         /// <summary>
         /// Handles unfocusing the <see cref="Dropdown"/> if the user clicks somewhere else.
         /// </summary>
-        private void HandlePostClick(UIBlock clickedUIBlock)
+        private void HandlePostClick(UIBlock ClickedUIBlock)
         {
             if (!Visuals.IsExpanded)
             {
                 return;
             }
 
-            if (clickedUIBlock == null || !clickedUIBlock.transform.IsChildOf(transform))
+            if (ClickedUIBlock == null || !ClickedUIBlock.transform.IsChildOf(transform))
             {
                 // Clicked somewhere else, so remove focus.
                 Collapse();

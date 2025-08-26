@@ -10,4 +10,5 @@ public interface IHaveReceipes
     float GetTimeToProduce();
 
     float GetStartTime();
+    float GetUpTime();
 }

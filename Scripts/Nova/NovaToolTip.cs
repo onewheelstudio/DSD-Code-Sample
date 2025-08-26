@@ -13,7 +13,7 @@ public class NovaToolTip : MonoBehaviour
     public static event Action<List<PopUpInfo>, List<PopUpPriorityButton>, List<PopUpValues>, NovaToolTip> openToolTip;
     public static event Action<List<PopUpInfo>, List<PopUpPriorityButton>, List<PopUpValues>, NovaToolTip> updateToolTip;
     public static event Action<List<PopUpStats>, NovaToolTip> updateStats;
-    public static event Action<List<PopUpResource>, NovaToolTip> updateResources;
+    public static event Action<List<PopUpResourceAmount>, NovaToolTip> updateResources;
     public static event Action closeToolTip;
     private float delay = 0.75f;
     private bool isActive;
@@ -140,10 +140,10 @@ public class NovaToolTip : MonoBehaviour
         return popUpStats;
     }
 
-    private List<PopUpResource> GetPopUpResources()
+    private List<PopUpResourceAmount> GetPopUpResources()
     {
         IHaveResources[] resources = this.GetComponents<IHaveResources>();
-        List<PopUpResource> popUpResources = new List<PopUpResource>();
+        List<PopUpResourceAmount> popUpResources = new List<PopUpResourceAmount>();
         foreach (var resourceList in resources)
             popUpResources.AddRange(resourceList.GetPopUpResources());
 

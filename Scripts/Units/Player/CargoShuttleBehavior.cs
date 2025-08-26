@@ -2,6 +2,7 @@ using DG.Tweening;
 using HexGame.Resources;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace HexGame.Units
@@ -10,6 +11,7 @@ namespace HexGame.Units
     {
         public bool isWorking { get; private set; }
         public bool hasLoad { get; private set; }
+        private bool lookingForWork = false;
         private HoverMoveBehavior hoverMove;
         private Vector3 startLocation;
         private WaitForSeconds wait = new WaitForSeconds(0.5f);
@@ -17,16 +19,19 @@ namespace HexGame.Units
         public CargoManager.Request request;
         [SerializeField]
         private Transform cargoParent;
-        private GameObject activeCube;
+        private CargoCube activeCube;
         private AudioSource audioSource;
         private UnitStorageBehavior usb;
         public UnitStorageBehavior Usb => usb;
         private static CargoManager cm;
+        private static PlayerResources playerResources;
 
         private void Awake()
         {
             if (cm == null)
                 cm = FindFirstObjectByType<CargoManager>();
+            if(playerResources == null)
+                playerResources = FindFirstObjectByType<PlayerResources>();
         }
 
 
@@ -60,7 +65,10 @@ namespace HexGame.Units
 
         public bool IsAvailable()
         {
-            return isFunctional && _isFunctional && !isWorking && !hasLoad;
+            if (lookingForWork)
+                return true;
+
+            return isFunctional && !isWorking && !hasLoad;
         }
 
         public void AddRequest(CargoManager.Request request, CargoManager.Request match)
@@ -68,38 +76,127 @@ namespace HexGame.Units
             this.request = request;
 
             if (IsAvailable() && request.requestType == CargoManager.RequestType.pickup)
-                StartCoroutine(DoRequest(request, match));
+            {
+                DoRequestAwaitable(request, match);
+            }
             else if(IsAvailable() && request.requestType == CargoManager.RequestType.deliver)
-                StartCoroutine(DoRequest(match, request));
+            {
+                DoRequestAwaitable(match, request);
+            }
         }
 
-        IEnumerator DoRequest(CargoManager.Request pickup, CargoManager.Request delivery)
+        private async void DoRequestAwaitable(CargoManager.Request pickup, CargoManager.Request delivery)
         {
             isWorking = true;
 
-            if ((pickup.storage.transform.position - this.transform.position).sqrMagnitude > 1f)
+            if ((pickup.storage.Position - this.transform.position).sqrMagnitude > 1f)
                 hoverMove.SetDestination(pickup.storage.landingPadPosition);
             pickup.storage.ReserveForPickup(pickup.resourceCapacity);
             delivery.storage.ReserveForDelivery(pickup.resourceCapacity);
 
-            yield return new WaitWhile(() => hoverMove.isMoving);
+            while(hoverMove.isMoving)
+            {
+                await Awaitable.NextFrameAsync();
+            }
+
+            if (!IsRequestValid(pickup, delivery))
+            {
+                CompleteRequest();
+                return;
+            }
+
             pickup.storage.PickupResource(pickup.resourceCapacity);
             hasLoad = true;
-            //cargoBox.gameObject.SetActive(hasLoad);
             SetCargo(pickup.resourceCapacity.type, hasLoad);
 
             hoverMove.SetDestination(delivery.storage.landingPadPosition);
-            yield return new WaitWhile(() => hoverMove.isMoving);
-            delivery.storage.DeliverResource(pickup.resourceCapacity);
-            hasLoad = false;
-            //cargoBox.gameObject.SetActive(hasLoad);
-            SetCargo(pickup.resourceCapacity.type, hasLoad);
+            while (hoverMove.isMoving)
+            {
+                await Awaitable.NextFrameAsync();
+            }
 
+            if (!IsRequestValid(pickup, delivery))
+            {
+                CompleteRequest();
+                return;
+            }
 
-            yield return wait;
+            if (delivery.storage.DeliverResource(pickup.resourceCapacity))
+            {
+                hasLoad = false;
+                SetCargo(pickup.resourceCapacity.type, hasLoad);
+            }
+            else
+            {
+                playerResources.TryReturnResource(pickup.resourceCapacity);
+                hasLoad = false;
+                SetCargo(pickup.resourceCapacity.type, hasLoad);
+            }
+
+            if (!hasLoad)
+                isWorking = false;
+
+            await Awaitable.WaitForSecondsAsync(0.5f);
+            if (!IsRequestValid(pickup, delivery))
+            {
+                CompleteRequest();
+                return;
+            }
+
+            if (isWorking) //if this is true we got another job while we waited
+            {
+                return;
+            }
+            else
+                isWorking = true;
+
             hoverMove.SetDestination(startLocation);
-            yield return new WaitWhile(() => hoverMove.isMoving);
+            while (hoverMove.isMoving)
+            {
+                await Awaitable.NextFrameAsync();
+            }
+            
+            if (!IsRequestValid(pickup, delivery))
+            {
+                CompleteRequest();
+                return;
+            }
+
+            if (hasLoad)
+            {
+                pickup.storage.DeliverResource(pickup.resourceCapacity);
+                hasLoad = false;
+                SetCargo(pickup.resourceCapacity.type, hasLoad);
+            }
             isWorking = false;
+        }
+
+        private bool IsRequestValid(CargoManager.Request pickup, CargoManager.Request delivery)
+        {
+            if(pickup.storage == null || delivery.storage == null)
+                return false;
+
+            return pickup.storage.gameObject.activeInHierarchy && delivery.storage.gameObject.activeInHierarchy;
+        }
+
+        private async void CompleteRequest()
+        {
+            if (hoverMove == null || hoverMove.gameObject == null)
+            {
+                hasLoad = false;
+                isWorking = false;
+                SetCargo(ResourceType.Energy, false);
+                return;
+            }
+
+            hoverMove.SetDestination(startLocation);
+            while (hoverMove.isMoving)
+            {
+                await Awaitable.NextFrameAsync();
+            }
+            hasLoad = false;
+            isWorking = false;
+            SetCargo(ResourceType.Energy, false);
         }
 
         public Vector3 GetStartLocation()
@@ -109,15 +206,19 @@ namespace HexGame.Units
 
         private void SetCargo(ResourceType type, bool hasLoad)        
         {
-            activeCube?.SetActive(false);
+            if(activeCube != null && activeCube.gameObject != null)
+                activeCube.ReturnToPool();
             if(hasLoad)
             {
                 activeCube = cm.GetCargoCube(type);
                 activeCube.transform.SetPositionAndRotation(cargoParent.position, cargoParent.rotation);
                 activeCube.transform.SetParent(cargoParent);
             }
-            else
+            else if(activeCube != null)
+            {
+                activeCube.transform.SetParent(null);
                 activeCube = null;
+            }
         }
     }
 

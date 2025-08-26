@@ -14,7 +14,7 @@ namespace HexGame.Resources
         public List<ResourceAmount> GetBuildCosts(PlayerUnitType unitType)
         {
             if (buildCostData.TryGetValue(unitType, out BuildCost buildCost))
-                return buildCost.costs;
+                return buildCost.GetCosts();
             else
                 return new List<ResourceAmount>();
         }

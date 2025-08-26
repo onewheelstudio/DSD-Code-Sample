@@ -9,10 +9,19 @@
                     "name": "LeftClick",
                     "type": "Button",
                     "id": "db5f52c4-8916-4ce3-87a6-857ee71d15a8",
-                    "expectedControlType": "Button",
+                    "expectedControlType": "",
                     "processors": "",
                     "interactions": "",
                     "initialStateCheck": false
+                },
+                {
+                    "name": "MouseZoom",
+                    "type": "Value",
+                    "id": "e9e17534-899a-4903-a580-ba6de680a6fc",
+                    "expectedControlType": "Vector2",
+                    "processors": "ScaleVector2(x=120,y=120)",
+                    "interactions": "",
+                    "initialStateCheck": true
                 },
                 {
                     "name": "RightClick",
@@ -168,9 +177,18 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "StockMarket",
+                    "name": "Market",
                     "type": "Button",
                     "id": "282d0550-8ec6-4c4f-afab-27e3281b9da2",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "AutoTrader",
+                    "type": "Button",
+                    "id": "b1b43f57-1ad1-4ace-98ce-677bd2953a95",
                     "expectedControlType": "Button",
                     "processors": "",
                     "interactions": "",
@@ -256,6 +274,24 @@
                     "processors": "",
                     "interactions": "",
                     "initialStateCheck": false
+                },
+                {
+                    "name": "OpenLoad",
+                    "type": "Button",
+                    "id": "b62a20f3-e223-426d-8d77-94a6ad1f20fd",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "OpenSave",
+                    "type": "Button",
+                    "id": "fad4a706-5b7a-4e7e-8a74-ff26f7c2f5ab",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
                 }
             ],
             "bindings": [
@@ -333,6 +369,17 @@
                     "processors": "",
                     "groups": "",
                     "action": "LeftClick",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "f127b8d1-3290-4a27-a091-9b38e2091b7c",
+                    "path": "<Mouse>/scroll",
+                    "interactions": "",
+                    "processors": "ScaleVector2(x=120,y=120)",
+                    "groups": "",
+                    "action": "MouseZoom",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -448,6 +495,17 @@
                 },
                 {
                     "name": "",
+                    "id": "678b61cc-1961-41c6-a229-3fd90ea84382",
+                    "path": "<Keyboard>/space",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Pause",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
                     "id": "b48837ac-92c5-4918-8ed9-b7dd9764f271",
                     "path": "<Keyboard>/leftBracket",
                     "interactions": "",
@@ -497,7 +555,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "StockMarket",
+                    "action": "Market",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -597,6 +655,83 @@
                     "processors": "",
                     "groups": "",
                     "action": "TabGroup",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "One Modifier",
+                    "id": "c5fdc7da-13ff-4a8f-8d6f-733033ec4709",
+                    "path": "OneModifier",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "OpenLoad",
+                    "isComposite": true,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "modifier",
+                    "id": "aef710f5-9c3f-41b4-ad33-6e03e143c941",
+                    "path": "<Keyboard>/ctrl",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "OpenLoad",
+                    "isComposite": false,
+                    "isPartOfComposite": true
+                },
+                {
+                    "name": "binding",
+                    "id": "6a90f581-3276-4e3d-84a1-d7857d881c79",
+                    "path": "<Keyboard>/l",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "OpenLoad",
+                    "isComposite": false,
+                    "isPartOfComposite": true
+                },
+                {
+                    "name": "One Modifier",
+                    "id": "94005153-8679-4b35-8ad9-3f5dcb01ad2b",
+                    "path": "OneModifier",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "OpenSave",
+                    "isComposite": true,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "modifier",
+                    "id": "a6b4d134-dc84-4e75-960b-00fffd264740",
+                    "path": "<Keyboard>/ctrl",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "OpenSave",
+                    "isComposite": false,
+                    "isPartOfComposite": true
+                },
+                {
+                    "name": "binding",
+                    "id": "74f0a558-4b67-4b10-8649-8258bfbde699",
+                    "path": "<Keyboard>/s",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "OpenSave",
+                    "isComposite": false,
+                    "isPartOfComposite": true
+                },
+                {
+                    "name": "",
+                    "id": "babc4fb5-51d2-4ded-8e86-599eb0795063",
+                    "path": "<Keyboard>/f",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "AutoTrader",
                     "isComposite": false,
                     "isPartOfComposite": false
                 }

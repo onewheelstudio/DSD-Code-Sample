@@ -1,3 +1,4 @@
+using Sirenix.OdinInspector;
 using UnityEngine;
 
 public class SteamManager : MonoBehaviour
@@ -26,6 +27,7 @@ public class SteamManager : MonoBehaviour
     private void OnDisable()
     {
         Steamworks.SteamClient.Shutdown();
+        isConnected = false;
     }
 
     void Update()
@@ -38,10 +40,19 @@ public class SteamManager : MonoBehaviour
         //Steamworks.SteamFriends.OpenStoreOverlay(1446560);
         bool isDemo = FindObjectOfType<GameSettingsManager>().IsDemo;
         string storeURL = isDemo ? "https://store.steampowered.com/app/2630960/Deep_Space_Directive_Demo" : "https://store.steampowered.com/app/2510180/Deep_Space_Directive";
-        
+
         if (isConnected)
             Steamworks.SteamFriends.OpenWebOverlay(storeURL);
         else
             Application.OpenURL(storeURL);
+    }
+
+    [Button]
+    public static string GetSteamName()
+    {
+        if (!isConnected)
+            return string.Empty;
+
+        return Steamworks.SteamClient.Name;
     }
 }

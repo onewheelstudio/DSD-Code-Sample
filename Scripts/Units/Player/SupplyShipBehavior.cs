@@ -6,6 +6,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
+using System.Threading;
 using UnityEngine;
 using static HexGame.Resources.ResourceProductionBehavior;
 
@@ -14,21 +16,20 @@ public class SupplyShipBehavior : UnitBehavior
     public static event Action<SupplyShipBehavior> supplyShipAdded;
     public static event Action<SupplyShipBehavior> supplyShipRemoved;
     public static event Action<SupplyShipBehavior> supplyShipLaunched;
-    public static event Action<SupplyShipBehavior> LoadSold;
-    public static event Action<SupplyShipBehavior> LoadBought;
+    public static event Action<SupplyShipBehavior, RequestType, List<ResourceAmount>> LoadShipped;
+    public static event Action<RequestType> requestComplete;
 
     [SerializeField]
     private SubRequest currentSubRequest;
     private List<ResourceAmount> requestedAmounts = new List<ResourceAmount>();
-    private UnitStorageBehavior usb;
+    public ShipStorageBehavior SSB => ssb;
+    private ShipStorageBehavior ssb;
     private bool readyToLaunch = false;
-    private bool hasWorkers => usb.GetAmountStored(ResourceType.Workers) > 0;
+    private bool hasWorkers => ssb.GetAmountStored(ResourceType.Workers) > 0;
     public bool ReadyToLaunch => readyToLaunch;
+    private bool isOnGround = false;
     private SupplyShipManager supplyShipManager;
 
-    public static event Action<ResourceAmount, SubRequest> resourceReceived;
-    public static event Action<ResourceAmount, SubRequest> resourcePickedUp;
-    public event Action<ResourceAmount> fuelReceived;
     [Title("Ship Parts")]
     [SerializeField] private Transform rocket;
     [SerializeField] private Transform frontEngines;
@@ -44,34 +45,34 @@ public class SupplyShipBehavior : UnitBehavior
     [SerializeField] private Ease landingEase = Ease.OutExpo;
     [SerializeField] private float unloadTime = 15f;
 
+    [Header("Import Bits")]
+    [SerializeField] private ResourceType importType;
+    private int remainingImportShipments;
     private float startHeight;
-    private int numberOfWorkers = 0;
-    private float requiredNumberOfWorkers => this.GetStat(Stat.workers);
 
     private void Awake()
     {
-        usb = this.GetComponent<UnitStorageBehavior>();
+        ssb = this.GetComponent<ShipStorageBehavior>();
         startHeight = rocket.position.y;
         launchParticles.ForEach(p => p.Stop());
         mainParticles.ForEach(p => p.Stop());
-        supplyShipManager = FindObjectOfType<SupplyShipManager>();
+        supplyShipManager = FindFirstObjectByType<SupplyShipManager>();
     }
 
     private void OnEnable()
     {
-        usb.resourceDelivered += CheckTotals;
-        usb.resourcePickedUp += CheckLoad;
+        ssb.resourceDelivered += CheckTotals;
+        ssb.resourcePickedUp += ResourcePickedUp;
         rocket.gameObject.SetActive(false);
-    }
 
+        var awaitable = CheckLoadStatus(this.destroyCancellationToken);
+    }
 
     private void OnDisable()
     {
-        usb.resourceDelivered -= CheckTotals;
-        usb.resourcePickedUp -= CheckLoad;
-        //trying to take care of quest if ship is destroyed or deleted
-        if(requestedAmounts.Count > 0)
-            supplyShipManager.ReturnRequest(currentSubRequest);
+        ssb.resourceDelivered -= CheckTotals;
+        ssb.resourcePickedUp -= ResourcePickedUp;
+ 
         DOTween.Kill(this,true);
     }
 
@@ -79,8 +80,6 @@ public class SupplyShipBehavior : UnitBehavior
     {
         isFunctional = true;
         supplyShipAdded?.Invoke(this);
-        SupplyShipManager.subRequestAdded += TryGetRequest;
-        usb.RequestWorkers();
         DisplayWarning();
     }
 
@@ -88,7 +87,6 @@ public class SupplyShipBehavior : UnitBehavior
     {
         isFunctional = false;
         supplyShipRemoved?.Invoke(this);
-        SupplyShipManager.subRequestAdded -= TryGetRequest;
     }
 
     private void DisplayWarning()
@@ -106,7 +104,7 @@ public class SupplyShipBehavior : UnitBehavior
             return;
         }
 
-        if (!hasWarningIcon)
+        if (warningIconInstance == null)
         {
             warningIconInstance = UnitManager.warningIcons.PullGameObject(this.transform.position, Quaternion.identity).GetComponent<WarningIcons>();
             warningIconInstance.transform.SetParent(this.transform);
@@ -115,89 +113,6 @@ public class SupplyShipBehavior : UnitBehavior
         warningIconInstance.SetWarnings(issueList);
     }
 
-    private void TryGetRequest(SupplyShipManager manager)
-    {
-        if(!currentSubRequest.isFailed && this.requestedAmounts != null && this.requestedAmounts.Sum(x =>x.amount) > 0)
-            return; //we already have a request, don't need another one
-
-        if (!readyToLaunch || !hasWorkers)
-            return; 
-
-        supplyShipManager = manager;
-        if(manager.TryGetSupplyRequest(out SubRequest request)) 
-            PlaceRequest(request);
-    }
-
-    private void PlaceRequest(SubRequest subRequest)
-    {
-        if (!readyToLaunch && !hasWorkers)
-            return; //ship is on the ground don't accept new requests
-
-        this.currentSubRequest = subRequest;
-        this.requestedAmounts = new List<ResourceAmount>(subRequest.resources);
-        subRequest.SetFailedCallback(QuestFailed);
-
-        if(subRequest.buyOrSell == RequestType.buy)
-        {
-            usb.ClearPickupTypes();
-            usb.ClearAllowedTypes();
-            foreach (var resource in subRequest.resources)
-            {
-                usb.AddToAllowedTypes(resource.type);
-                usb.AddToPickUpTypes(resource.type);
-            }
-            DoLaunch();
-        }
-        else
-        {
-            usb.ClearPickupTypes();
-            usb.ClearAllowedTypes();
-            foreach (var resource in subRequest.resources)
-            {
-                usb.AddToAllowedTypes(resource.type);
-                usb.RequestResource(resource);
-            }
-        }
-    }
-
-    private void QuestFailed()
-    {
-        if (currentSubRequest == null)
-            return;
-
-        Debug.Log("Quest Failed");
-        CargoManager.RemoveAllRequests(usb);
-        usb.RequestPickup(currentSubRequest.resources);
-        usb.RemoveRequestForResources(currentSubRequest.resources);
-        StartCoroutine(WaitForUnload(currentSubRequest.resources));
-    }
-
-    private IEnumerator WaitForUnload(List<ResourceAmount> resources)
-    {
-        bool hasResources = true;
-        while(hasResources)
-        {
-            yield return new WaitForSeconds(1f);
-            foreach (var resource in resources)
-            {
-                if (usb.GetResourceTotal(resource.type) > 0)
-                {
-                    yield return new WaitForSeconds(1f);
-                    hasResources = true;
-                    break;
-                }
-                hasResources = false;
-            }
-        }
-
-        if (supplyShipManager.TryGetSupplyRequest(out SubRequest newSubRequest))
-            PlaceRequest(newSubRequest);
-    }
-
-    public static int GetFuelAmount()
-    {
-        return 10;
-    }
 
     //each time something is delivered we check if we have all the requested resources
     private void CheckTotals(UnitStorageBehavior behavior, ResourceAmount resource)
@@ -207,69 +122,71 @@ public class SupplyShipBehavior : UnitBehavior
             WorkersReceived(resource);
             return;
         }
+    }
 
-        //if true we've canceled the request
-        if (currentSubRequest.isFailed)
-        {
-            usb.RequestPickup(resource);
-            return;
-        }
-
-        if (currentSubRequest.buyOrSell == RequestType.buy)
-            return;
-
-        if (usb.HasAllResources(requestedAmounts))
-        {
-            readyToLaunch = true;
-            requestedAmounts.ForEach(r => resourceReceived?.Invoke(r, currentSubRequest)); //reports delivery
-            currentSubRequest.QuestComplete();
+    private void ResourcePickedUp(UnitStorageBehavior behavior, ResourceAmount amount)
+    {
+        if (isOnGround && remainingImportShipments > 0 && CanLaunchForImport())
             DoLaunch();
-        }
     }
 
     private void WorkersReceived(ResourceAmount resource)
     {
         numberOfWorkers += resource.amount;
         DisplayWarning();
-        StartCoroutine(RocketLanding(3f)); //will check for new request when it lands
-    }
-
-    private void CheckLoad(UnitStorageBehavior behavior, ResourceAmount amount)
-    {
-        if(currentSubRequest.isFailed)
-            return;
-
-        if (currentSubRequest.buyOrSell == RequestType.sell)
-            return;
-
-        resourcePickedUp?.Invoke(amount, currentSubRequest);
-        int amountleft = behavior.GetResourceTotal(amount.type);
-        //we should only have one type of resource...
-        if (amountleft <= 0)
-        {
-            readyToLaunch = true;
-            this.requestedAmounts.Clear();
-            CompleteRequest();
+        if (SaveLoadManager.Loading)
+        { 
+            rocket.gameObject.SetActive(true);
+            mainParticles.ForEach(p => p.Stop());
+            CompleteRequest();// attempts to get new request
         }
+        else
+            StartCoroutine(RocketLanding(3f)); //will check for new request when it lands
     }
 
-    private void DoLaunch()
+    public void ImportResource(ResourceType resource, int numShipments)
+    {
+        this.importType = resource;
+        this.remainingImportShipments = numShipments;
+
+        //make sure we can handle imported resource
+        this.ssb.AddAllowedResource(resource);
+
+        if (CanLaunchForImport())
+            DoLaunch();
+    }
+
+    private bool CanLaunchForImport()
+    {
+        var storedResouces = ssb.GetStoredResources();
+        var hasResources = false;
+        for (int i = 0; i < storedResouces.Count; i++)
+        {
+            if (storedResouces[i].type != ResourceType.Workers && storedResouces[i].amount > 0)
+            {
+                hasResources = true;
+                break;
+            }
+        }
+
+        return !hasResources;
+    }
+
+    public void DoLaunch()
     {
         if (!readyToLaunch)
             return;
 
         supplyShipLaunched?.Invoke(this);
         StartCoroutine(RocketLaunch());
-        Debug.Log("Launching"); 
     }
-
-    [Button]
-    private void TestLaunch()
-    {
-        StartCoroutine(RocketLaunch());
-    }
+    
     private IEnumerator RocketLaunch()
     {
+        if(!DayNightManager.isDay)
+            yield return new WaitUntil(() => DayNightManager.isDay);
+
+        isOnGround = false;
         readyToLaunch = false;
         yield return new WaitForSeconds(2f / GameConstants.GameSpeed);
 
@@ -277,7 +194,8 @@ public class SupplyShipBehavior : UnitBehavior
         //play SFX
         yield return new WaitForSeconds(0.5f);
 
-        yield return rocket.DOMoveY(startHeight + launchHeight, launchTime/ GameConstants.GameSpeed).SetEase(takeOffEase).WaitForPosition(launchTime / GameConstants.GameSpeed);
+        rocket.DOMoveY(startHeight + launchHeight, launchTime / GameConstants.GameSpeed).SetEase(takeOffEase);
+        yield return new WaitForSeconds(launchTime / GameConstants.GameSpeed);
 
         frontEngines.DOLocalRotate(new Vector3(0f, 90f, 0f), 2f / GameConstants.GameSpeed);
         rearEngines.DOLocalRotate(new Vector3(0f, 90f, 0f), 2f / GameConstants.GameSpeed);
@@ -285,38 +203,55 @@ public class SupplyShipBehavior : UnitBehavior
         mainParticles.ForEach(p => p.Play());
         float angle = UnityEngine.Random.Range(-90f, 90);
         float nextWaitTime = Mathf.Max(angle / 30f, 2f);//allow engines to fully rotate
-        yield return rocket.DOLocalRotate(new Vector3(0f, angle, 0f), angle / 30f).WaitForPosition(nextWaitTime / GameConstants.GameSpeed);
-        yield return rocket.DOMove(rocket.transform.position + 100f * rocket.transform.right, launchTime / GameConstants.GameSpeed).SetEase(takeOffEase).WaitForPosition(launchTime / GameConstants.GameSpeed);
+        rocket.DOLocalRotate(new Vector3(0f, angle, 0f), angle / 30f);
+        yield return new WaitForSeconds(nextWaitTime / GameConstants.GameSpeed);
+        rocket.DOMove(rocket.transform.position + 100f * rocket.transform.right, launchTime / GameConstants.GameSpeed).SetEase(takeOffEase);
+        yield return new WaitForSeconds(launchTime / GameConstants.GameSpeed);
         
         //reset rocket
         rocket.transform.localRotation = Quaternion.identity;
-        //frontEngines.transform.localRotation = Quaternion.identity;
-        //rearEngines.transform.localRotation = Quaternion.identity;
         mainParticles.ForEach(p => p.Stop());
         launchParticles.ForEach(p => p.Stop());
 
         yield return new WaitForSeconds(unloadTime/(2f * GameConstants.GameSpeed));
 
         //consume resources
-        if(currentSubRequest.buyOrSell == RequestType.sell)
+        var storedResouces = ssb.GetStoredResources();
+        if(storedResouces.Any(r => r.type != ResourceType.Workers && r.amount > 0))
+            LoadShipped?.Invoke(this, RequestType.sell, storedResouces.Where(r => r.type != ResourceType.Workers).ToList());
+        for(int i = 0; i < storedResouces.Count; i++)
         {
-            usb.TryUseAllResources(requestedAmounts);
-            requestedAmounts.Clear();
-            LoadSold?.Invoke(this);
+            if(storedResouces[i].type != ResourceType.Workers && storedResouces[i].amount > 0)
+            {
+                ssb.SellResource(storedResouces[i]);
+            }
         }
-        else
-        {
-            usb.DeliverResources(requestedAmounts);
-            LoadBought?.Invoke(this);
-        }
+        
         yield return new WaitForSeconds(unloadTime/(2f * GameConstants.GameSpeed));
+        
+        if (remainingImportShipments > 0)
+        {
+            DoImport(importType);
+            yield return new WaitForSeconds(unloadTime/(2f * GameConstants.GameSpeed));
+        }
 
         StartCoroutine(RocketLanding());
     }
 
+    private void DoImport(ResourceType importType)
+    {
+        ResourceAmount import = new ResourceAmount(importType, SupplyShipManager.supplyShipCapacity);
+        ssb.BuyResource(import);
+        LoadShipped?.Invoke(this, RequestType.buy, new List<ResourceAmount>() {import});
+        remainingImportShipments = Mathf.Max(0, remainingImportShipments - 1);
+    }
+
     private IEnumerator RocketLanding(float delay = 0f)
     {
-        if(delay > 0f)
+        if (!DayNightManager.isDay)
+            yield return new WaitUntil(() => DayNightManager.isDay);
+
+        if (delay > 0f)
         {
             rocket.gameObject.SetActive(false);
             yield return new WaitForSeconds(delay / GameConstants.GameSpeed);
@@ -332,9 +267,12 @@ public class SupplyShipBehavior : UnitBehavior
 
         frontEngines.DOLocalRotate(new Vector3(0f, 0f, 0f), 2f / GameConstants.GameSpeed).SetDelay((launchTime -2f) / GameConstants.GameSpeed);
         rearEngines.DOLocalRotate(new Vector3(0f, 0f, 0f), 2f / GameConstants.GameSpeed).SetDelay((launchTime - 2f) / GameConstants.GameSpeed);
-        yield return rocket.DOLocalMove(Vector3.zero + Vector3.up * launchHeight, launchTime / GameConstants.GameSpeed).SetEase(landingEase).WaitForPosition(launchTime / GameConstants.GameSpeed);
+        rocket.DOLocalMove(Vector3.zero + Vector3.up * launchHeight, launchTime / GameConstants.GameSpeed).SetEase(landingEase);
+        yield return new WaitForSeconds(launchTime / GameConstants.GameSpeed);
+
         mainParticles.ForEach(p => p.Stop());
-        yield return rocket.DOMoveY(startHeight, launchTime / GameConstants.GameSpeed).SetEase(landingEase).WaitForPosition(launchTime / GameConstants.GameSpeed);
+        rocket.DOMoveY(startHeight, launchTime / GameConstants.GameSpeed).SetEase(landingEase);
+        yield return new WaitForSeconds(launchTime / GameConstants.GameSpeed);
         
         yield return new WaitForSeconds(0.5f);
         launchParticles.ForEach(p => p.Stop());
@@ -342,25 +280,48 @@ public class SupplyShipBehavior : UnitBehavior
         rearEngines.transform.localRotation = Quaternion.identity;
 
         if (currentSubRequest == null || currentSubRequest.buyOrSell == RequestType.sell)
+        {
             CompleteRequest();
+            requestComplete?.Invoke(currentSubRequest.buyOrSell);
+        }    
         else
             RequestPickUp();
 
+        isOnGround = true;
         //turn off SFX
     }
 
     private void RequestPickUp()
     {
-        usb.RequestPickup(currentSubRequest.resources);
+        ssb.RequestPickup(currentSubRequest.resources);
     }
 
     //we've completed our first request try to get another
     private void CompleteRequest()
     {
         readyToLaunch = true;
+    }
 
-        if (supplyShipManager.TryGetSupplyRequest(out SubRequest newSubRequest))
-            PlaceRequest(newSubRequest);
+    private async Awaitable CheckLoadStatus(CancellationToken destroyCancellationToken)
+    {
+        while(!destroyCancellationToken.IsCancellationRequested)
+        {
+            await Awaitable.WaitForSecondsAsync(5f, destroyCancellationToken);
+
+            if (currentSubRequest.buyOrSell == RequestType.buy)
+                continue;
+
+            if (!isOnGround)
+                continue;
+
+            if (ssb.HasAllResources(requestedAmounts) && requestedAmounts.Count > 0)
+            {
+                readyToLaunch = true;
+                //requestedAmounts.ForEach(r => resourceSold?.Invoke(r, currentSubRequest)); //reports delivery
+                currentSubRequest.QuestComplete();
+                DoLaunch();
+            }
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 using HexGame.Resources;
 using HexGame.Units;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -9,15 +10,6 @@ public class CollectResourceDirective : DirectiveBase
     [SerializeField] private ResourceAmount resourceAmount;
     private int amountCollected;
 
-    private void ResourceUpdated(ResourceAmount incomingResource)
-    {
-        if(incomingResource.type != resourceAmount.type)
-            return;
-        
-        amountCollected += incomingResource.amount;
-        DirectiveUpdated();
-    }
-
     public override List<string> DisplayText()
     {
         return new List<string>() { $"Collect {resourceAmount.type.ToNiceString()}: {amountCollected}/{resourceAmount.amount}" };
@@ -25,9 +17,28 @@ public class CollectResourceDirective : DirectiveBase
 
     public override void Initialize()
     {
-        GlobalStorageBehavior.resourceAdded += ResourceUpdated;
-        amountCollected = 0;
+        base.Initialize();
+        ResourceProductionBehavior.resourceProduced += ResourceUpdated;
+        CollectionBehavior.terreneStored += ResourceUpdated;
+        //amountCollected = 0;
         CommunicationMenu.AddCommunication(OnStartCommunication);
+    }
+
+    private void ResourceUpdated(ResourceProductionBehavior behavior, ResourceAmount amount)
+    {
+        if (amount.type != resourceAmount.type)
+            return;
+
+        amountCollected += amount.amount;
+        DirectiveUpdated();
+    }
+    private void ResourceUpdated(ResourceAmount amount)
+    {
+        if (amount.type != resourceAmount.type)
+            return;
+
+        amountCollected += amount.amount;
+        DirectiveUpdated();
     }
 
     public override List<bool> IsComplete()
@@ -37,8 +48,11 @@ public class CollectResourceDirective : DirectiveBase
 
     public override void OnComplete()
     {
-        GlobalStorageBehavior.resourceAdded -= ResourceUpdated;
+        ResourceProductionBehavior.resourceProduced -= ResourceUpdated;
+        CollectionBehavior.terreneStored -= ResourceUpdated;
         CommunicationMenu.AddCommunication(OnCompleteCommunication);
         OnCompleteTrigger.ForEach(t => t.DoTrigger());
     }
+
+
 }

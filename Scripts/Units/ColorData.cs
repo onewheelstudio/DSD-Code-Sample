@@ -55,6 +55,7 @@ public enum ColorCode
     crystalIcon,
     markerIcon,
     enemyUnitIcon,
+    urgentDelivery,
 }
 
 

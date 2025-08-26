@@ -10,66 +10,69 @@ namespace HexGame.Resources
 {
     public class CargoManager : MonoBehaviour
     {
-        private static List<GlobalStorageBehavior> storageBuildings = new List<GlobalStorageBehavior>();
-
         private static List<CargoShuttleBehavior> globalShuttles = new List<CargoShuttleBehavior>();
         private static List<CargoShuttleBehavior> localShuttles = new List<CargoShuttleBehavior>();
         public static int transportAmount = 5;
         public static int transportRange = 5;
         [ShowInInspector]
         private static RequestQueue pickupRequests = new RequestQueue();
-        [ShowInInspector]
-        private static RequestQueue deliveryRequests = new RequestQueue();
         [SerializeField]
         private CargoCubeList cargoCubeList;
         [SerializeField] private GameObject emptyDropPrefab;
-        private static ObjectPool<ResourcePickup> emptyDropPool;
+        private static ObjectPool<ResourcePickupBehavior> emptyDropPool;
+        private UnitManager unitManager;
 
         //request completion
         private RequestPrioritySorting requestPrioritySorting = new RequestPrioritySorting();
         private bool sortRequests = false;
 
+        private void Awake()
+        {
+            cargoCubeList.ClearCargoPools();
+            unitManager = FindFirstObjectByType<UnitManager>();
+        }
+
 
         private void OnEnable()
         {
-            GlobalStorageBehavior.gloablStorageAdded += AddStorageBuilding;
-            GlobalStorageBehavior.gloablStorageRemoved += RemoveStorageBuilding;
-            UnitInfoWindow.prorityChanged += SetSortRequests;
+            UnitInfoWindow.priorityChanged += SetSortRequests;
 
-            emptyDropPool = new ObjectPool<ResourcePickup>(emptyDropPrefab);
+            emptyDropPool = new ObjectPool<ResourcePickupBehavior>(emptyDropPrefab);
         }
 
         private void OnDisable()
         {
-            GlobalStorageBehavior.gloablStorageAdded -= AddStorageBuilding;
-            GlobalStorageBehavior.gloablStorageRemoved -= RemoveStorageBuilding;
-            UnitInfoWindow.prorityChanged -= SetSortRequests;
+            UnitInfoWindow.priorityChanged -= SetSortRequests;
 
             DOTween.Kill(this,true);
+
+            globalShuttles.Clear();
+            localShuttles.Clear();
         }
 
+        private void Start()
+        {
+            ProcessRequests();
+        }
 
-
-        public static void MakeRequest(UnitStorageBehavior unit, ResourceAmount resource, RequestType requestType)
+        public static void MakeRequest(UnitStorageBehavior unit, ResourceAmount resource, RequestType requestType, bool onMainThread = true)
         {
             if(resource.amount <= 0)
                 return;
 
             int requestsNeeded = Mathf.FloorToInt(resource.amount / CargoManager.transportAmount);
             for (int i = 0; i < requestsNeeded; i++)
-                PlaceRequest(new Request(unit, new ResourceAmount(resource.type, CargoManager.transportAmount), requestType));
+                PlaceRequest(new Request(unit, new ResourceAmount(resource.type, CargoManager.transportAmount), requestType, onMainThread));
 
             //get remainder amount
             if (resource.amount % CargoManager.transportAmount > 0)
-                PlaceRequest(new Request(unit, new ResourceAmount(resource.type, resource.amount % CargoManager.transportAmount), requestType));
+                PlaceRequest(new Request(unit, new ResourceAmount(resource.type, resource.amount % CargoManager.transportAmount), requestType, onMainThread));
         }
 
         private static void PlaceRequest(Request request)
         {
             if(request.requestType == RequestType.pickup)
                 pickupRequests.AddRequest(request);
-            else
-                deliveryRequests.AddRequest(request);
         }
 
         
@@ -95,34 +98,37 @@ namespace HexGame.Resources
             globalShuttles.Remove(shuttle);
         }
 
-        public static void AddStorageBuilding(GlobalStorageBehavior storage)
+        private async Awaitable ProcessRequests()
         {
-            if (!storageBuildings.Contains(storage))
-                storageBuildings.Add(storage);
-        }
+            while(!destroyCancellationToken.IsCancellationRequested)
+            {
+                if (sortRequests)
+                    SortRequests();
 
-        public static void RemoveStorageBuilding(GlobalStorageBehavior storage)
-        {
-            storageBuildings.Remove(storage);
-        }
+                if(DayNightManager.isNight || GameOverMenu.isGameOver)
+                {
+                    await Awaitable.MainThreadAsync();
+                    await Awaitable.NextFrameAsync();
+                    continue;
+                }
 
-        private void Update()
-        {
-            if (DayNightManager.isNight)
-                return;
+                try
+                {
+                    //await CompleteRequests(deliveryRequests, pickupRequests);
+                    await CompleteRequests(pickupRequests);
+                    await Awaitable.NextFrameAsync();
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogError("Error in CargoManager - ProcessRequests");
+                    Debug.LogError(e);
+                    throw;
+                }
 
-            if(!GameOverMenu.isGameOver)
-                ProcessRequests();
-        }
+            }
 
-        private void ProcessRequests()
-        {
-            if (sortRequests && Time.frameCount % 3 == 0)
-                SortRequests();
-            if(Time.frameCount % 2 == 0)
-                CompleteRequests(deliveryRequests, pickupRequests);
-            else
-                CompleteRequests(pickupRequests, deliveryRequests);
+            await Awaitable.MainThreadAsync();
+            Debug.Log("Cancellation token requested - stopping request processing.");
         }
 
         private void SetSortRequests()
@@ -132,18 +138,24 @@ namespace HexGame.Resources
 
         private void SortRequests()
         {
-            deliveryRequests.requests.Sort(requestPrioritySorting);
             pickupRequests.requests.Sort(requestPrioritySorting);
             sortRequests = false;
         }
 
-        private void CompleteRequests(RequestQueue requestQueue, RequestQueue matchQueue)
+        private async Awaitable CompleteRequests(RequestQueue requestQueue)
         {
             if(requestQueue.requests.Count == 0)
                 return;
 
-            foreach (var request in requestQueue.requests)
+            await Awaitable.BackgroundThreadAsync();
+
+            for (int i = 0; i < requestQueue.requests.Count; i++)
             {
+                Request request = requestQueue.requests[i];
+
+                if(request == null)
+                    continue;
+
                 //filter for buildings that are turned off
                 if (request.priority == RequestPriority.off)
                     continue;
@@ -151,174 +163,51 @@ namespace HexGame.Resources
                 if(!KeepRequestInQueue(request))
                 {
                     requestQueue.RemoveRequest(request);
-                    return; //return because inside foreach loop
+                    continue;
                 }
 
                 //check if building is functional
                 if (!IsRequestValid(request))
                 {
-                    requestQueue.requests.MoveToLast(request);
-                    return; //return because inside foreach loop
+                    requestQueue.requests.MoveToLast(request); //should this be a remove instead?
+                    continue;
                 }
 
                 CargoShuttleBehavior shuttleBehavior = null;
-
-                //check if a match can be found
-                foreach (var match in matchQueue.requests)
+                request.storage.LockConnections(true);
+                List<UnitStorageBehavior> storageConnections = request.storage.GetConnectionsByPriority();
+                for (int j = 0; j < storageConnections.Count; j++)
                 {
-                    if(match.storage.GetPriority() == RequestPriority.off)
+                    UnitStorageBehavior connection = storageConnections[j];
+                    if (connection == null)
                         continue;
 
-                    //is the attempted match connected to the requesting building?
-                    if (!request.storage.GetConnections().Contains(match.storage) && 
-                        !match.storage.GetConnections().Contains(request.storage))
+                    if (!connection.CanDeliverResource(request.resourceCapacity))
                         continue;
 
-                    if (request.resourceCapacity.type != match.resourceCapacity.type)
+                    if (!request.storage.CanPickupResource(request.resourceCapacity))
                         continue;
 
-                    //this should never happen
-                    if (request.storage == match.storage)
+                    if (!TryGetShuttle(request.storage, connection, out shuttleBehavior))
                         continue;
+                    RequestType requestType = request.requestType == RequestType.pickup ? RequestType.deliver : RequestType.pickup;
+                    Request matchRequest = new Request(connection, request.resourceCapacity, requestType, false);
 
-                    //trying to only have the "deliver" shuttle do the work
-                    if (request.requestType == RequestType.deliver && !IsLocalShuttleAvailable(match.storage, out shuttleBehavior))
-                        continue;
-                    else if (match.requestType == RequestType.deliver && !IsLocalShuttleAvailable(request.storage, out shuttleBehavior))
-                        continue;
-
-                    if (HelperFunctions.HexRange(shuttleBehavior.GetStartLocation(), request.storage.transform.position) <= CargoManager.transportRange
-                        && HelperFunctions.HexRange(shuttleBehavior.GetStartLocation(), match.storage.transform.position) <= CargoManager.transportRange)
-                    {
-                        shuttleBehavior.AddRequest(request, match);
-
-                        requestQueue.RemoveRequest(request);
-                        matchQueue.RemoveRequest(match);
-
-                        return; //found a match - we'll find more next frame - avoid messy list issues and accounting
-                    }
-                }
-
-                //are we connected to storage that can supply us?
-                Request deliveryRequest = null;
-
-                //used mostly by building spots
-                //this allows storage buildings to deliver to buildings without a return connection
-                if(deliveryRequest == null && !request.storage.cargoWithoutConnection)
-                {
-                    foreach (var globalStorage in storageBuildings)
-                    {
-                        if (!globalStorage.isFunctional)
-                            continue;
-
-                        if (!TryGetShuttle(request.storage, globalStorage, out shuttleBehavior))
-                            continue;
-
-                        if (request.requestType == RequestType.pickup && 
-                            request.storage.GetConnections().Contains(globalStorage) && 
-                            globalStorage.CanStoreResource(request.resourceCapacity))
-                        {
-                            deliveryRequest = new Request(globalStorage, request.resourceCapacity, RequestType.deliver);
-                            break;
-                        }
-                        else if (request.requestType == RequestType.deliver && 
-                                 globalStorage.GetConnections().Contains(request.storage) && 
-                                 globalStorage.CanPickUpResource(request.resourceCapacity))
-                        {
-                            deliveryRequest = new Request(globalStorage, request.resourceCapacity, RequestType.pickup);
-                            break;
-                        }                        
-                        else if (request.requestType == RequestType.deliver && 
-                                 request.storage is GlobalStorageBehavior &&
-                                 HelperFunctions.HexRange(request.storage.transform.position, globalStorage.transform.position) <= transportRange && 
-                                 globalStorage.CanPickUpResource(request.resourceCapacity))
-                        {
-                            deliveryRequest = new Request(globalStorage, request.resourceCapacity, RequestType.pickup);
-                            break;
-                        }
-                    }
-                }
-
-                //special kiddy gloves for placeholder tiles
-                if(deliveryRequest == null && request.storage.cargoWithoutConnection)
-                {
-                    foreach (var globalStorage in storageBuildings)
-                    {
-                        if (!globalStorage.isFunctional)
-                            continue;
-
-                        if (HelperFunctions.HexRange(globalStorage.transform.position, request.storage.transform.position) >= CargoManager.transportRange + 1)
-                            continue;
-
-                        //if (!TryGetShuttle(request.storage, globalStorage, out shuttleBehavior))
-                        if (!IsLocalShuttleAvailable(globalStorage, out shuttleBehavior))
-                                continue;
-
-                        if (request.requestType == RequestType.pickup && globalStorage.CanStoreResource(request.resourceCapacity))
-                        {
-                            deliveryRequest = new Request(globalStorage, request.resourceCapacity, RequestType.deliver);
-                            break;
-                        }
-                        else if (request.requestType == RequestType.deliver && globalStorage.CanPickUpResource(request.resourceCapacity))
-                        {
-                            deliveryRequest = new Request(globalStorage, request.resourceCapacity, RequestType.pickup);
-                            break;
-                        }
-                    }
-                }
-
-                //attempt partial delivery from global storage
-                if(deliveryRequest == null && request.requestType == RequestType.deliver)
-                {
-                    foreach (var globalStorage in storageBuildings)
-                    {
-                        if (!globalStorage.isFunctional)
-                            continue;
-
-                        if (!globalStorage.GetConnections().Contains(request.storage))
-                            continue;
-
-                        if (!TryGetShuttle(request.storage, globalStorage, out shuttleBehavior))
-                            continue;
-
-                        //are there any colonists available?
-                        int resourceAvailable = globalStorage.GetAmountStored(request.resourceCapacity.type);
-                        if (resourceAvailable == 0)
-                            break;
-
-                        if(resourceAvailable > request.resourceCapacity.amount)
-                        {
-                            Debug.Log("This shouldn't happen - resource available more than requested during partial load.");
-                            break;
-                        }
-          
-                        deliveryRequest = new Request(globalStorage, new ResourceAmount(request.resourceCapacity.type, resourceAvailable), RequestType.pickup);
-
-                        //we've completed partial deliver now create new request for remaining workers
-                        int remainingNeeded = request.resourceCapacity.amount - resourceAvailable;
-                        request.resourceCapacity.amount = resourceAvailable;
-                        MakeRequest(request.storage, new ResourceAmount(request.resourceCapacity.type, remainingNeeded), RequestType.deliver);
-                        break;
-                    }
-                }
-
-                if (deliveryRequest != null && shuttleBehavior != null)
-                {
-                    shuttleBehavior.AddRequest(request, deliveryRequest);
                     requestQueue.RemoveRequest(request);
-                    return;
+                    await Awaitable.MainThreadAsync();
+                    shuttleBehavior.AddRequest(request, matchRequest);
+                    break;
                 }
+                request.storage.LockConnections(false);
             }
         }
 
-
-
         private bool IsRequestValid(Request request)
         {
-            if (request.storage != null && request.storage is GlobalStorageBehavior)
-                return true;
+            if (request.storage == null)
+                return false;
 
-            if (request.storage != null && !request.storage.isFunctional)
+            if (!request.storage.isFunctional)
                 return false;
 
             return true;
@@ -326,10 +215,7 @@ namespace HexGame.Resources
         
         private bool KeepRequestInQueue(Request request)
         {
-            if (request.storage == null)
-                return false;
-
-            if (request.storage != null && request.storage.gameObject.activeSelf == false)
+            if (request.storage == null || !request.storage.IsActive)
                 return false;
 
             return true;
@@ -370,11 +256,11 @@ namespace HexGame.Resources
         {
             cargoShuttle = null;
 
-            foreach (var shuttle in storage.shuttles)
+            for (int i = storage.shuttles.Count - 1; i >= 0; i--)
             {
-                if (shuttle.IsAvailable())
+                if (storage.shuttles[i].IsAvailable())
                 {
-                    cargoShuttle = shuttle;
+                    cargoShuttle = storage.shuttles[i];
                     return true;
                 }
             }
@@ -382,7 +268,7 @@ namespace HexGame.Resources
             return false;
         }
 
-        public GameObject GetCargoCube(ResourceType resourceType)
+        public CargoCube GetCargoCube(ResourceType resourceType)
         {
             return cargoCubeList.GetCargoCube(resourceType);
         }
@@ -395,18 +281,31 @@ namespace HexGame.Resources
         /// <param name="percentRecovered"></param>
         public void PlaceCubes(List<ResourceAmount> unitCost, Vector3 position, float percentRecovered)
         {
+            if (unitCost == null || unitCost.Count == 0)
+                return;
+
             if (GameConstants.recoverResourcePercent != 1f)
                 unitCost.ForEach(x => x.amount = Mathf.RoundToInt(x.amount * GameConstants.recoverResourcePercent * percentRecovered));
 
+            if (unitCost.Sum(r => r.amount) == 0)
+                return;
+
+            ResourcePickupBehavior rpb = null;
+            if (UnitManager.TryGetPlayerUnitAtLocation(position, out PlayerUnit playerUnit))
+                playerUnit.TryGetComponent(out rpb);
+            
+            if(rpb == null)
+                rpb = emptyDropPool.Pull();
+            rpb.transform.position = position;
             foreach (ResourceAmount resource in unitCost)
             {
                 int numberToDrop = Mathf.RoundToInt(resource.amount / CargoManager.transportAmount);
                 for (int i = 0; i < numberToDrop; i++)
                 {
-                    GameObject cube = GetCargoCube(resource.type);
-                    ResourcePickup cubeParent = emptyDropPool.Pull();
-                    cubeParent.SetResource(new ResourceAmount(resource.type, CargoManager.transportAmount));
-                    cube.transform.SetParent(cubeParent.transform);
+                    CargoCube cube = GetCargoCube(resource.type);
+                    cube.gameObject.SetActive(true);
+                    rpb.AddResourcePickup(cube);
+                    cube.transform.SetParent(rpb.transform);
                     
                     //random offset used to avoid z fighting
                     cube.transform.localScale = Vector3.one * 25f;
@@ -414,20 +313,28 @@ namespace HexGame.Resources
                     cube.transform.eulerAngles = new Vector3(0f, UnityEngine.Random.Range(0f, 360f), 0f);
 
                     Vector3 offset = Random.insideUnitCircle * 0.5f;
-                    cubeParent.transform.position = position + new Vector3(offset.x, 0f, offset.y);
-                    cubeParent.transform.position += new Vector3(0f, 0.08f + UnityEngine.Random.Range(0.05f, 0.075f), 0f);
+                    cube.transform.position = position + new Vector3(offset.x, 0f, offset.y);
+                    cube.transform.position += new Vector3(0f, 0.08f + UnityEngine.Random.Range(0.05f, 0.075f), 0f);
 
-                    Vector3 finalPosition = position;
+                    Vector3 finalPosition = position + Vector3.up * 0.0625f;
                     float time = Mathf.Sqrt((finalPosition - cube.transform.position).y / (0.5f * Physics.gravity.y));
-                    cubeParent.transform.DOMoveY(finalPosition.y, time).SetEase(Ease.InQuad);
+                    cube.transform.DOMoveY(finalPosition.y, time).SetEase(Ease.InQuad);
                 }
             }
+
+            playerUnit = rpb.GetComponent<PlayerUnit>();
+            playerUnit.Place();
+            unitManager.AddResourceDrop(playerUnit);
         }
 
         public static void RemoveAllRequests(UnitStorageBehavior usb)
         {
             pickupRequests.RemoveRequestBy(usb);
-            deliveryRequests.RemoveRequestBy(usb);
+        }
+
+        public static void RemovePickupRequests(UnitStorageBehavior usb, ResourceType resource)
+        {
+            pickupRequests.RemoveRequestsByResource(usb, resource);
         }
 
         private class RequestQueue
@@ -441,13 +348,15 @@ namespace HexGame.Resources
 
             public bool AddRequest(Request request)
             {
-                //int index = requests.FindIndex(r => r.priority > request.priority);
                 int index = -1;
 
                 for (int i = 0; i < requests.Count - 1; i++)
                 {
                     if (requests.Count < 2)
                         break;
+
+                    if (requests[i] == null)
+                        continue;
 
                     if (requests[i].priority == request.priority && requests[i+1].priority < request.priority)
                     {
@@ -478,7 +387,24 @@ namespace HexGame.Resources
             {
                 for(int i = requests.Count - 1; i >= 0; i--)
                 {
+                    if (requests[i] == null)
+                        continue;
+
                     if (requests[i].storage == usb)
+                    {
+                        requests.RemoveAt(i);
+                    }
+                }
+            }
+
+            public void RemoveRequestsByResource(UnitStorageBehavior usb, ResourceType resouce)
+            {
+                for (int i = requests.Count - 1; i >= 0; i--)
+                {
+                    if (requests[i] == null)
+                        continue;
+
+                    if (requests[i].resourceCapacity.type == resouce && requests[i].storage == usb)
                     {
                         requests.RemoveAt(i);
                     }
@@ -489,12 +415,15 @@ namespace HexGame.Resources
         [System.Serializable]
         public class Request
         {
-            public Request(UnitStorageBehavior storage, ResourceAmount resourceAmount, RequestType requestType)
+            public Request(UnitStorageBehavior storage, ResourceAmount resourceAmount, RequestType requestType, bool onMainThread = true)
             {
                 this.storage = storage;
                 this.resourceCapacity = resourceAmount;
                 this.requestType = requestType;
-                this.timePlaced = Time.timeSinceLevelLoad;
+                if (onMainThread)
+                    this.timePlaced = Time.timeSinceLevelLoad;
+                else
+                    this.timePlaced = -1f;
             }
 
             public float timePlaced;
@@ -546,7 +475,8 @@ namespace HexGame.Resources
             off,
             low,
             medium,
-            high
+            high,
+            urgent,
         }
 
         public enum RequestType

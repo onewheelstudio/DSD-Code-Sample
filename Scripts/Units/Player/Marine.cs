@@ -45,24 +45,28 @@ public class Marine : MonoBehaviour
 
     private void SetReady(int obj)
     {
+        animator ??= this.GetComponent<Animator>();
         animator.SetTrigger("Ready");
-
     }
 
     private void SetIdle(int obj)
     {
+        animator ??= this.GetComponent<Animator>();
         animator.SetTrigger("Idle");
     }
 
     private void OnDisable()
     {
         hmb.reachedDestination -= FinishMovement;
+        DayNightManager.toggleDay -= SetIdle;
+        DayNightManager.toggleNight -= SetReady; 
         DOTween.Kill(this,true);
     }
 
     public void SetDestination(Vector3 position)
     {
         offset = this.transform.position - (this.transform.position.ToHex3()).ToVector3();
+        offset.y = 0f;
         this.transform.SetParent(null);
         StartCoroutine(DelayMove(position + offset));
         isMoving = true;
@@ -76,7 +80,8 @@ public class Marine : MonoBehaviour
         animator.SetTrigger("TakeOff");
         yield return new WaitForSeconds(0.2f); //6 frames of the jump animation
         dustPool.Pull(this.transform.position);
-        hmb.SetDestination(position, true);
+        //position.y = 0f; //ensure that marines land on the ground
+        hmb.SetDestination(position);
 
         yield return new WaitUntil(() => this.transform.position.y > 0.8f);
         yield return new WaitUntil(() => this.transform.position.y < 0.45f);
@@ -88,9 +93,9 @@ public class Marine : MonoBehaviour
 
     private void FinishMovement()
     {
-        reachedDestination?.Invoke();
         this.transform.SetParent(parent);
         isMoving = false;
+        reachedDestination?.Invoke();
     }
 
     public void SetJetPack(bool isOn)

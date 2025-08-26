@@ -35,19 +35,19 @@ public class PlayTestFeedBackWindow : WindowPopup
     public override void OnEnable()
     {
         base.OnEnable();
-        submitButton.clicked += SubmitFeedback;
-        cancelButton.clicked += CloseWindow;
+        submitButton.Clicked += SubmitFeedback;
+        cancelButton.Clicked += CloseWindow;
         if(quitOnSubmit)
-            cancelButton.clicked += QuitOnSend;
+            cancelButton.Clicked += QuitOnSend;
     }
 
     public override void OnDisable()
     {
         base.OnDisable();
-        submitButton.clicked -= SubmitFeedback;
-        cancelButton.clicked -= CloseWindow;
+        submitButton.Clicked -= SubmitFeedback;
+        cancelButton.Clicked -= CloseWindow;
         if(quitOnSubmit)
-            cancelButton.clicked -= QuitOnSend;
+            cancelButton.Clicked -= QuitOnSend;
     }
 
     public override void OpenWindow()

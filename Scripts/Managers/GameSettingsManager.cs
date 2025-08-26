@@ -7,7 +7,6 @@ public class GameSettingsManager : MonoBehaviour
     public bool IsDemo { get => gameSettings.IsDemo; }
     public int MaxTierForDemo { get => gameSettings.MaxTierForDemo; }
     public static event System.Action<bool> demoToggled;
-
     public bool IsEarlyAccess { get => gameSettings.IsEarlyAccess; }
     public int MaxTierForEarlyAccess { get => gameSettings.MaxTierForEarlyAccess; }
     public static event System.Action<bool> earlyAccessToggled;
@@ -20,7 +19,6 @@ public class GameSettingsManager : MonoBehaviour
 
     private void Start()
     {
-        gameSettings.ToggleEvents();
+        gameSettings.ToggleBuildType();
     }
-
 }

@@ -8,7 +8,8 @@ public class BuildingRequirement
 {
     public PlayerUnitType unitType;
     public int totalToBuild;
-    [HideInInspector, NonSerialized]
-    public int numberBuilt;
+    [HideInInspector]
+    [NonSerialized] public int numberBuilt;
+    [NonSerialized] public int numberPlaced;
     public string DisplayText => $"Build {unitType.ToNiceString()}: {numberBuilt}/{totalToBuild}";
 }

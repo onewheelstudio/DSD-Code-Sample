@@ -25,6 +25,7 @@ public class AudioManager : MonoBehaviour
     [SerializeField] private AudioMixer voiceVolume;
     private bool isPlayingDay;
     private Coroutine waitUntilDone;
+    private bool audioPaused = false;
 
     private void Awake()
     {
@@ -53,7 +54,6 @@ public class AudioManager : MonoBehaviour
     [Button]
     private void ResetAudioPrefences()
     {
-        
         AudioListener.volume = 1f;
         ES3.Save("musicVolume", 0.25f, GameConstants.preferencesPath);
         ES3.Save("sfxVolume", 0.5f, GameConstants.preferencesPath);
@@ -72,20 +72,37 @@ public class AudioManager : MonoBehaviour
         SceneManager.sceneLoaded -= SceneLoaded;
     }
 
-    //private void Update()
-    //{
-    //    if (currentAudio.isPlaying)
-    //        return;
+    void OnApplicationFocus(bool hasFocus)
+    {
+        if(currentAudio == null)
+            return;
 
-    //    if (!DayNightManager.isNight)
-    //        PlayDayTime();
-    //    else
-    //        PlayNightTime();
-    //}
+        if(hasFocus)
+        { 
+            currentAudio.UnPause(); 
+            audioPaused = false;
+        }
+        else
+        {
+            currentAudio.Pause();
+            audioPaused = true;
+        }
+    }
+
+    private void Update()
+    {
+        if (currentAudio.isPlaying || audioPaused)
+            return;
+
+        if (!DayNightManager.isNight)
+            PlayDayTime();
+        else
+            PlayNightTime();
+    }
 
     private void SceneLoaded(Scene scene, LoadSceneMode mode)
     {
-        if(scene.buildIndex == 0)
+        if(scene.buildIndex == 0 || scene.name.Contains("StartScene"))
         {
             PlayIntroMusic();
             DayNightManager.transitionToDay -= PlayDayTime;
@@ -135,8 +152,8 @@ public class AudioManager : MonoBehaviour
         if (currentAudio == null)
             return;
 
-        if(waitUntilDone != null)
-            StopCoroutine(waitUntilDone);
+        //if(waitUntilDone != null)
+        //    StopCoroutine(waitUntilDone);
 
         currentAudio.clip = clip;
         currentClip = clip;
@@ -144,7 +161,7 @@ public class AudioManager : MonoBehaviour
         currentAudio.Play();
         currentAudio.volume = 0f;
         StartCoroutine(FadeAudio(currentAudio, 1f, fadeTime));
-        waitUntilDone = StartCoroutine(WaitUntilDone(currentAudio)); 
+        //waitUntilDone = StartCoroutine(WaitUntilDone(currentAudio)); 
     }
 
     private IEnumerator WaitUntilDone(AudioSource audioSource)
@@ -195,6 +212,7 @@ public class AudioManager : MonoBehaviour
 
         AudioSource audioSource = this.gameObject.AddComponent<AudioSource>();
         audioSource.outputAudioMixerGroup = musicAudioMixer;
+        audioSource.priority = 0;
         audioSources.Add(audioSource);
         return audioSource;
     }

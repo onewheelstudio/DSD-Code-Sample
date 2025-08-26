@@ -8,7 +8,9 @@ public class UnlockWorkerMenuButton : TriggerBase
     public override void DoTrigger()
     {
         WorkerButtonUnlocked?.Invoke();
+        PlayerPrefs.SetInt("TUTORIAL_COMPLETE", 1);
     }
 }
 
 
+    

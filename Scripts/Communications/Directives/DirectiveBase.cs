@@ -5,6 +5,8 @@ using UnityEngine;
 
 public abstract class DirectiveBase : ScriptableObject, ISelfValidator
 {
+    protected string guid;
+    public string GUID => guid ??= Guid.NewGuid().ToString();
     public event Action<DirectiveBase> directiveUpdated;
     public event Action<DirectiveBase> directiveCompleted;
     [SerializeField] protected CommunicationBase OnStartCommunication;
@@ -14,10 +16,32 @@ public abstract class DirectiveBase : ScriptableObject, ISelfValidator
     [Header("Notes")]
     [SerializeField, TextArea(3, 10)] protected string notes;
 
-    public abstract void Initialize();
+    private void OnValidate()
+    {
+        if (string.IsNullOrEmpty(guid))
+            guid = Guid.NewGuid().ToString();
+    }
+
+    public virtual void Initialize()
+    {
+        directiveUpdated = null;
+        directiveCompleted = null;
+    }
+
     public abstract void OnComplete();
     public abstract List<bool> IsComplete();
     public abstract List<string> DisplayText();
+
+    public string DisplayTestToString()
+    {
+        string text = "";
+        foreach (var _text in DisplayText())
+        {
+            text += _text;
+        }
+
+        return text;
+    }
 
     protected void DirectiveUpdated()
     {

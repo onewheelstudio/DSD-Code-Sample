@@ -44,17 +44,17 @@ namespace HexGame.Resources
 
                 return;
             }
-            else if (!useLocalStorage && !PlayerResources.TryUseAllResources(resourcesRequired))
-            {
-                insufficientResources?.Invoke();
-                foreach (var resource in resourcesAtStake)
-                {
-                    resourceLost?.Invoke(resource);
-                    MessagePanel.ShowMessage($"{resource.amount} {resource.type} lost at {storageBehavior.gameObject.name}.", storageBehavior.gameObject);
-                }
+            //else if (!useLocalStorage && !PlayerResources.TryUseAllResources(resourcesRequired))
+            //{
+            //    insufficientResources?.Invoke();
+            //    foreach (var resource in resourcesAtStake)
+            //    {
+            //        resourceLost?.Invoke(resource);
+            //        MessagePanel.ShowMessage($"{resource.amount} {resource.type} lost at {storageBehavior.gameObject.name}.", storageBehavior.gameObject);
+            //    }
 
-                return;
-            }
+            //    return;
+            //}
         }
     }
 }

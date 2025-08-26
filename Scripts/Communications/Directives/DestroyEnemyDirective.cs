@@ -11,8 +11,9 @@ public class DestroyEnemyDirective : DirectiveBase
 
     public override void Initialize()
     {
+        base.Initialize();
         EnemyUnit.enemyUnitKilled += EnemyUnitKilled;
-        amountDestroyed = 0;
+        //amountDestroyed = 0;
         if(OnStartCommunication != null)
             CommunicationMenu.AddCommunication(OnStartCommunication);
     }

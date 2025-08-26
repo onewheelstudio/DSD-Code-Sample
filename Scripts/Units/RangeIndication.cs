@@ -1,20 +1,14 @@
-using HexGame.Resources;
 using HexGame.Units;
 using OWS.ObjectPooling;
-using System;
 using System.Collections;
 using UnityEngine;
-using UnityEngine.EventSystems;
 
-public class RangeIndication : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerClickHandler
+public class RangeIndication : MonoBehaviour
 {
-    [SerializeField] private GameObject rangePrefab;
-    private static ObjectPool<HexRange> rangeIndicatorPool;
     private HexRange rangeIndicator;
     private HexRange minRangeIndicator;
     [SerializeField] private Color borderColor = new Color(0.4392f, 0.7568f, 1f, 0.54f);
     [SerializeField] private Color bodyColor = new Color(0.4392f, 0.7568f, 1f, 0.36f);
-    [SerializeField] private Color secondaryBodyColor = new Color(0.4392f, 0.7568f, 1f, 0.36f);
     private CargoShuttleBehavior cargoShuttleBehavior;
 
     private Unit unit;
@@ -23,14 +17,15 @@ public class RangeIndication : MonoBehaviour, IPointerEnterHandler, IPointerExit
     [SerializeField] private bool showCargoRange = false;
     [SerializeField] private bool showAttackRange = false;
     [SerializeField] private bool showSightDistance = false;
-    [SerializeField] private bool showOnClick = true;
-    private bool wasForced = false;
+    private static bool wasForced = false;
+
+    private HexAreaDraw hexDraw;
 
     private void Awake()
     {
-        rangeIndicatorPool = new ObjectPool<HexRange>(rangePrefab);
         if (showCargoRange)
             cargoShuttleBehavior = this.GetComponentInChildren<CargoShuttleBehavior>();
+        hexDraw = FindFirstObjectByType<HexAreaDraw>();
     }
 
     private void OnEnable()
@@ -46,11 +41,14 @@ public class RangeIndication : MonoBehaviour, IPointerEnterHandler, IPointerExit
         if (showAttackRange)
             ToggleRangeButton.toggleAttackRange += ToggleRange;
 
+        UnitSelectionManager.hoverOverUnit += ShowRange;
+        UnitSelectionManager.unHoverOverUnit += HideRange;
+        UnitSelectionManager.unitSelected += ShowRange;
+        UnitSelectionManager.unitUnSelected += HideRange;
+
         unit = this.GetComponent<Unit>();
 
     }
-
-
 
     private void OnDisable()
     {
@@ -64,6 +62,11 @@ public class RangeIndication : MonoBehaviour, IPointerEnterHandler, IPointerExit
         }
         else if(showAttackRange)
             ToggleRangeButton.toggleAttackRange -= ToggleRange;
+
+        UnitSelectionManager.hoverOverUnit -= ShowRange;
+        UnitSelectionManager.unHoverOverUnit -= HideRange;
+        UnitSelectionManager.unitSelected -= ShowRange;
+        UnitSelectionManager.unitUnSelected -= HideRange;
 
         if (rangeIndicator != null)
             rangeIndicator.gameObject.SetActive(false);
@@ -89,18 +92,18 @@ public class RangeIndication : MonoBehaviour, IPointerEnterHandler, IPointerExit
         HideRange();
     }
 
-    private void HideRange()
+    private void HideRange(PlayerUnit playerUnit)
     {
-        if (rangeIndicator == null)
+        if(wasForced || playerUnit == null)
             return;
 
-        rangeIndicator.HideRange();
-        rangeIndicator = null;
-        if (minRangeIndicator != null)
-        {
-            minRangeIndicator.HideRange();
-            minRangeIndicator = null;
-        }
+        if (playerUnit.gameObject == this.gameObject)
+            HideRange();
+    }
+
+    public void HideRange()
+    {
+        hexDraw.StopDrawing();
     }
     private void ShowRange()
     {
@@ -111,6 +114,20 @@ public class RangeIndication : MonoBehaviour, IPointerEnterHandler, IPointerExit
     {
         wasForced = true;
         ShowRange(unitType);
+    }
+
+    private void ShowRange(PlayerUnit playerUnit)
+    {
+        if (wasForced)
+            return;
+
+        if (playerUnit.gameObject != this.gameObject)
+            return;
+
+        hexDraw.StopDrawing(); //clear previous range
+        if (showCargoRange) //prevent showing cargo when selected
+            return;
+        ShowRange(playerUnit.unitType);
     }
 
     private void ShowRange(PlayerUnitType unitType)
@@ -130,49 +147,20 @@ public class RangeIndication : MonoBehaviour, IPointerEnterHandler, IPointerExit
 
     private void ShowRange(int range, int minRange = 0)
     {
-        if(rangeIndicator == null)
-            rangeIndicator = rangeIndicatorPool.Pull(this.transform.position + Vector3.up * 0.105f, Quaternion.Euler(90f,0f,0f));
-        rangeIndicator.ShowRange(range, minRange, borderColor, bodyColor);
-
-        //if (minRangeIndicator == null && minRange > 0)
-        //{
-        //    minRangeIndicator = rangeIndicatorPool.Pull(this.transform.position + Vector3.up * 0.1f, Quaternion.Euler(90f, 0f, 0f));
-        //    minRangeIndicator.ShowRange(minRange, 0, borderColor, secondaryBodyColor);
-        //}
+        hexDraw.SetColors(bodyColor, borderColor);
+        hexDraw.AddRange(this.transform.position, minRange, range);
     }
 
-    public void OnPointerClick(PointerEventData eventData)
+    public void ShowRange(Vector3 center, int range, int minRange = 0)
     {
-        if (wasForced)
-            return; 
-        
-        if (showOnClick)
-        {
-            ShowRange();
-        }
+        hexDraw.SetColors(bodyColor, borderColor);
+        hexDraw.AddRange(center, minRange, range);
     }
 
-    public void OnPointerEnter(PointerEventData eventData)
+    public void SetColors(Color bodyColor, Color borderColor)
     {
-        if (wasForced)
-            return;
-        
-        if (showOnClick)
-        {
-            StartCoroutine(ShowRangeDelayed());
-        }
-    }
-
-    public void OnPointerExit(PointerEventData eventData)
-    {
-        if(wasForced)
-            return;
-
-        if (showOnClick)
-        {
-            HideRange();
-            StopAllCoroutines();
-        }
+        this.bodyColor = bodyColor;
+        this.borderColor = borderColor;
     }
 
     private IEnumerator ShowRangeDelayed()

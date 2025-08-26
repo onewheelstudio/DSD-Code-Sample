@@ -60,6 +60,8 @@ public class UpgradeUIVisuals : ItemVisuals
             InitializeProductionUpgrade(productionUpgrade);
         else if(tile.upgrade is RecipeUpgrade recipeUpgrade)
             InitializeRecipeUpgrade(recipeUpgrade);
+        else if(tile.upgrade is UnlockAutoTrader triggerUpgrade)
+            InitializeTriggerUpgrade(triggerUpgrade);
         else
             Debug.LogError($"{tile.upgrade.UpgradeName}  : Upgrade not supported");
 
@@ -153,6 +155,12 @@ public class UpgradeUIVisuals : ItemVisuals
                 clipMask.Tint = purchasedColor;
                 break;
         }
+    }
+
+    private void InitializeTriggerUpgrade(UnlockAutoTrader triggerUpgrade)
+    {
+        costIcon.Color = colorData.GetColor(ColorCode.techCredit);
+        icon.SetImage(triggerUpgrade.Icon);
     }
 
     private void InitializeRecipeUpgrade(RecipeUpgrade recipeUpgrade)

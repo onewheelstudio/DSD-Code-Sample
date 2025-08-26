@@ -1,12 +1,9 @@
-using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
-using Nova;
-using System;
-using System.Linq;
-using UnityEngine.InputSystem;
-using NovaSamples.UIControls;
 using HexGame.Resources;
+using Nova;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+using UnityEngine.InputSystem;
 
 [RequireComponent(typeof(ClipMask))]
 public class InfoToolTipWindow : WindowPopup
@@ -44,7 +41,7 @@ public class InfoToolTipWindow : WindowPopup
     {
         parentBlock = this.GetComponent<UIBlock2D>();
         screenSpace = this.GetComponentInParent<ScreenSpace>();
-        statsList.AddDataBinder<PopUpResource, UnitInfoButtonVisuals>(DisplayStats);
+        statsList.AddDataBinder<PopUpResourceAmount, UnitInfoButtonVisuals>(DisplayStats);
     }
 
 
@@ -108,7 +105,7 @@ public class InfoToolTipWindow : WindowPopup
         OpenWindow();
     }
 
-    private void PopulateStats(List<PopUpResource> list)
+    private void PopulateStats(List<PopUpResourceAmount> list)
     {
         if(list == null || list.Count == 0)
         {
@@ -122,7 +119,7 @@ public class InfoToolTipWindow : WindowPopup
         }
     }
 
-    private void DisplayStats(Data.OnBind<PopUpResource> evt, UnitInfoButtonVisuals target, int index)
+    private void DisplayStats(Data.OnBind<PopUpResourceAmount> evt, UnitInfoButtonVisuals target, int index)
     {
         ResourceTemplate resource = GameObject.FindObjectOfType<PlayerResources>().GetResourceTemplate(evt.UserData.resource.type);
 

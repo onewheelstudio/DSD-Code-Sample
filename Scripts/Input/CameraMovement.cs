@@ -47,6 +47,8 @@ public class CameraMovement : MonoBehaviour
     [SerializeField]
     [Range(0f, 0.1f)]
     private float edgeTolerance = 0.05f;
+    [SerializeField, Range(1f,5f)]
+    private float edgeScrollSpeed = 1.5f;
 
     [Header("Limit Movement")]
     [SerializeField, Range(20, 50)] private int hexLimit = 40;
@@ -68,11 +70,18 @@ public class CameraMovement : MonoBehaviour
     Vector3 startDrag;
 
     private bool allowCameraMovement = true;
+    private float timeStep = 1f/50f;
+
 
     private void Awake()
     {
         cameraActions = new CameraControlActions();
         cameraTransform = this.GetComponentInChildren<Camera>().transform;
+
+        if (ES3.FileExists(GameConstants.preferencesPath))
+        {
+            useScreenEdge = ES3.Load<bool>("doEdgeScrolling", GameConstants.preferencesPath, false);
+        }
     }
 
     private void OnEnable()
@@ -89,15 +98,21 @@ public class CameraMovement : MonoBehaviour
         cameraActions.Camera.Enable();
 
         Message.moveToObject += MoveToObject;
+        SupplyShipDropdownVisuals.MoveToPosition += MoveToObject;
+        DevelopResourceDirective.MoveToLocationClicked += MoveToObject;
         MinimapManager.moveCamera += MoveToObject;
         HexTechTree.techTreeOpen += TechTreeOpen;
         StateOfTheGame.GameStarted += ZoomToStart;
         GroupControlManager.MoveToGroup += MoveToObject;
+        GameSettingsWindow.DoEdgeScrolling += ToggleEdgeScrolling;
+        GameSettingsWindow.EdgeScrollSpeedChanged += SetEdgeScrollSpeed;
+        FirstTimeSetupWindow.DoEdgeScrolling += ToggleEdgeScrolling;
 
         ControlsManager.CameraControlsUpdated += UpdateMovementBindings;
     }
 
-  
+
+
     private void OnDisable()
     {
         cameraActions.Camera.RotateCamera.performed -= RotateCamera;
@@ -105,15 +120,21 @@ public class CameraMovement : MonoBehaviour
         cameraActions.Camera.Disable();
 
         Message.moveToObject -= MoveToObject;
+        SupplyShipDropdownVisuals.MoveToPosition -= MoveToObject;
+        DevelopResourceDirective.MoveToLocationClicked -= MoveToObject;
         MinimapManager.moveCamera -= MoveToObject;
         HexTechTree.techTreeOpen -= TechTreeOpen;
         StateOfTheGame.GameStarted -= ZoomToStart;
         GroupControlManager.MoveToGroup -= MoveToObject;    
+        GameSettingsWindow.DoEdgeScrolling -= ToggleEdgeScrolling;
+        GameSettingsWindow.EdgeScrollSpeedChanged -= SetEdgeScrollSpeed;
+        FirstTimeSetupWindow.DoEdgeScrolling -= ToggleEdgeScrolling;
 
         ControlsManager.CameraControlsUpdated -= UpdateMovementBindings;
 
         DOTween.Kill(this,true);
     }
+
 
     private void UpdateMovementBindings(string rebinds)
     {
@@ -128,7 +149,7 @@ public class CameraMovement : MonoBehaviour
 
     private void Update()
     {
-        if(!allowCameraMovement)
+        if(!allowCameraMovement || WindowPopup.BlockWindowHotkeys)
             return;
 
         //inputs
@@ -145,8 +166,7 @@ public class CameraMovement : MonoBehaviour
 
     private void UpdateVelocity()
     {
-        if (Time.deltaTime != 0f)
-            horizontalVelocity = (this.transform.position - lastPosition) / Time.deltaTime;
+        horizontalVelocity = (this.transform.position - lastPosition) / timeStep;
 
         horizontalVelocity.y = 0f;
         lastPosition = this.transform.position;
@@ -199,28 +219,35 @@ public class CameraMovement : MonoBehaviour
         else if (mousePosition.y > (1f - edgeTolerance) * Screen.height)
             moveDirection += GetCameraForward();
 
-        targetPosition += moveDirection;
+        targetPosition += moveDirection * edgeScrollSpeed;
     }
 
     private void UpdateBasePosition()
     {
+        if (Time.timeScale > 0)
+            timeStep = Time.deltaTime;
+
         if(!CanMove())
         {
             //create smooth slow down
-            horizontalVelocity = Vector3.Lerp(horizontalVelocity, Vector3.zero, Time.deltaTime * damping);
-            transform.position -= horizontalVelocity * Time.deltaTime;
+            horizontalVelocity = Vector3.Lerp(horizontalVelocity, Vector3.zero, timeStep * damping);
+            if (float.IsNaN(horizontalVelocity.x) || float.IsNaN(horizontalVelocity.y) || float.IsNaN(horizontalVelocity.z))
+                horizontalVelocity = Vector3.zero;
+            transform.position -= horizontalVelocity * timeStep;
         }
         else if (targetPosition.sqrMagnitude > 0.1f )
         {
             //create a ramp up or acceleration
-            speed = Mathf.Lerp(speed, maxSpeed, Time.deltaTime * acceleration);
-            transform.position += targetPosition * speed * Time.deltaTime;
+            speed = Mathf.Lerp(speed, maxSpeed, timeStep * acceleration);
+            transform.position += targetPosition * speed * timeStep;
         }
         else
         {
             //create smooth slow down
-            horizontalVelocity = Vector3.Lerp(horizontalVelocity, Vector3.zero, Time.deltaTime * damping);
-            transform.position += horizontalVelocity * Time.deltaTime;
+            horizontalVelocity = Vector3.Lerp(horizontalVelocity, Vector3.zero, timeStep * damping);
+            if (float.IsNaN(horizontalVelocity.x) || float.IsNaN(horizontalVelocity.y) || float.IsNaN(horizontalVelocity.z))
+                horizontalVelocity = Vector3.zero; 
+            transform.position += horizontalVelocity * timeStep;
         }
 
         //reset for next frame
@@ -263,7 +290,7 @@ public class CameraMovement : MonoBehaviour
         //add vector for forward/backward zoom
         zoomTarget -= zoomSpeed * (zoomHeight - cameraTransform.localPosition.y) * Vector3.forward;
 
-        cameraTransform.localPosition = Vector3.Lerp(cameraTransform.localPosition, zoomTarget, Time.deltaTime * zoomDampening);
+        cameraTransform.localPosition = Vector3.Lerp(cameraTransform.localPosition, zoomTarget, timeStep * zoomDampening);
         cameraTransform.LookAt(this.transform);
     }
 
@@ -314,4 +341,15 @@ public class CameraMovement : MonoBehaviour
         zoomDampening = 7.5f;
 
     }
+
+    private void ToggleEdgeScrolling(bool value)
+    {
+        useScreenEdge = value;
+    }
+
+    private void SetEdgeScrollSpeed(float speed)
+    {
+        this.edgeScrollSpeed = speed;
+    }
+
 }

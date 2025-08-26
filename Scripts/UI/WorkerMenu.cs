@@ -2,6 +2,7 @@ using HexGame.Grid;
 using HexGame.Resources;
 using HexGame.Units;
 using Nova;
+using Nova.Animations;
 using NovaSamples.UIControls;
 using System;
 using System.Collections;
@@ -9,22 +10,27 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-public class WorkerMenu : WindowPopup
+public class WorkerMenu : WindowPopup, ISaveData
 {
     [Header("Worker Stats")]
-    private int hireCost = 150;
+    private int hireCost = 250;
     [SerializeField] private TextBlock workerHireCost;
     [SerializeField] private TextBlock workerInfoText;
     [SerializeField] private TextBlock foodCost;
     [SerializeField] private TextBlock waterCost;
     [SerializeField] private TextBlock creditCost;
-    [SerializeField] private Slider wageSlider;
     [SerializeField] private Button addWorkerButton;
     [SerializeField] private Button removeWorkerButton;
-    [SerializeField] private Toggle halfRations;
-    [SerializeField] private Toggle fullRations;
-    [SerializeField] private Toggle doubleRations;
+    
+    [Header("Rations")]
+    [SerializeField] private Slider rationsSlider;
     private Rations currentRations;
+    private float _currentRations;
+
+    [Header("Wages")]
+    [SerializeField] private Slider wagesSlider;
+    private Wages currentWages;
+    private int _currentWages;
 
     [Header("Worker Happiness")]
     [SerializeField] private TextBlock efficiencyText;
@@ -43,7 +49,6 @@ public class WorkerMenu : WindowPopup
     [SerializeField] private TextBlock infantryFoodCost;
     [SerializeField] private TextBlock infantryWaterCost;
     [SerializeField] private TextBlock infantryCreditCost;
-    private UnitManager unitManager;
     private CursorManager cursorManager;
 
     private PlayerResources playerResources;
@@ -54,27 +59,33 @@ public class WorkerMenu : WindowPopup
     public static event Action RationSet;
     public static event Action WagesSet;
 
+    [Header("Unlock and Open Bits")]
+    [SerializeField] private Button openButton;
+    private UIBlock2D openButtonBlock;
+    private AnimationHandle animationHandle;
+
     private void Awake()
     {
         CheatCodes.AddButton(() => { UnlockWindow(); OpenWindow(); }, "Open Worker Menu");
         unitManager = FindFirstObjectByType<UnitManager>();
         cursorManager = FindFirstObjectByType<CursorManager>();
+
+        openButtonBlock = openButton.GetComponent<UIBlock2D>();
+
+        RegisterDataSaving();
     }
 
     private new void OnEnable()
     {
         base.OnEnable();
-        halfRations.toggled += SetRations;
-        fullRations.toggled += SetRations;
-        doubleRations.toggled += SetRations;
+        rationsSlider.ValueChanged += SetRations;
+        wagesSlider.ValueChanged += SetWage;
+
         UpdateWorkerValues();
         UpdateHappiness();
 
-        wageSlider.OnValueChanged.AddListener(SetWage);
-        wageSlider.Value = WorkerManager.wagePerWorker;
-
-        addWorkerButton.clicked += AddWorker;
-        removeWorkerButton.clicked += RemoveWorker;
+        addWorkerButton.Clicked += AddWorker;
+        removeWorkerButton.Clicked += RemoveWorker;
 
         UnitManager.unitPlaced += UpdateWorkerMenu;
         UnitManager.unitPlaced += UpdateHappiness;
@@ -82,28 +93,32 @@ public class WorkerMenu : WindowPopup
 
         WorkerManager.workerStateChanged += UpdateWorkerValues;
         WorkerManager.workerStateChanged += UpdateHappiness;
+
         OpenWorkerMenu.WorkerMenuOpen += OpenWindow;
         UnlockWorkerMenuButton.WorkerButtonUnlocked += UnlockWindow;
         PubBehavior.HappinessChanged += UpdateHappiness;
 
-        addInfantryButton.clicked += AddInfantry;
-        setRallyPoint.clicked += SetRallyPoint;
+        addInfantryButton.Clicked += AddInfantry;
+        setRallyPoint.Clicked += SetRallyPoint;
         CloseWindow();
+
+        wagesSlider.Min = 0f;
+        wagesSlider.Max = WorkerManager.maxWages;
+
+        rationsSlider.Min = 0f;
+        rationsSlider.Value = WorkerManager.rations * 10;
+        rationsSlider.Max = WorkerManager.maxRations * 10; //slider uses integers for snapping
     }
+
 
     private new void OnDisable()
     {
         base.OnDisable();
-        halfRations.toggled -= SetRations;
-        fullRations.toggled -= SetRations;
-        doubleRations.toggled -= SetRations;
-
-        wageSlider.OnValueChanged.AddListener(SetWage);
-
-        addWorkerButton.clicked -= AddWorker;
-        removeWorkerButton.clicked -= RemoveWorker;
+        addWorkerButton.Clicked -= AddWorker;
+        removeWorkerButton.Clicked -= RemoveWorker;
 
         UnitManager.unitPlaced -= UpdateWorkerMenu;
+        UnitManager.unitPlaced -= UpdateHappiness;
         PlayerUnit.unitRemoved -= UpdateWorkerMenu;
 
         WorkerManager.workerStateChanged -= UpdateWorkerValues;
@@ -113,8 +128,8 @@ public class WorkerMenu : WindowPopup
         UnlockWorkerMenuButton.WorkerButtonUnlocked -= UnlockWindow;
         PubBehavior.HappinessChanged -= UpdateHappiness;
 
-        addInfantryButton.clicked -= AddInfantry;
-        setRallyPoint.clicked -= SetRallyPoint;
+        addInfantryButton.Clicked -= AddInfantry;
+        setRallyPoint.Clicked -= SetRallyPoint;
     }
 
 
@@ -132,21 +147,21 @@ public class WorkerMenu : WindowPopup
     private void UpdateWorkerValues()
     {
         if (playerResources == null)
-            playerResources = GameObject.FindObjectOfType<PlayerResources>();
+            playerResources = GameObject.FindFirstObjectByType<PlayerResources>();
 
         workerHireCost.Text = "Hire Cost: " + hireCost.ToString();
 
-        workerInfoText.Text = "Available: " + WorkerManager.availableWorkers.ToString();
-        if (WorkerManager.workersNeeded > 0)
+        workerInfoText.Text = "Available: " + Mathf.Max(0,WorkerManager.AvailableWorkers).ToString();
+        if (WorkerManager.AvailableWorkers <= 0 && WorkerManager.workersNeeded > 0)
             workerInfoText.Text += ("\nNeeded: " + WorkerManager.workersNeeded.ToString()).TMP_Color(ColorManager.GetColor(ColorCode.offPriority));
-        workerInfoText.Text += "\nTotal: " + WorkerManager.totalWorkers.ToString();
+        workerInfoText.Text += "\nTotal: " + WorkerManager.TotalWorkers.ToString();
         workerInfoText.Text += $"\nHousing: {WorkerManager.housingCapacity}";
 
-        foodCost.Text = (WorkerManager.foodperworker * WorkerManager.totalWorkers).ToString();
-        waterCost.Text = (WorkerManager.foodperworker * WorkerManager.totalWorkers).ToString();
-        creditCost.Text = (WorkerManager.wagePerWorker * WorkerManager.totalWorkers).ToString();
+        foodCost.Text = Mathf.RoundToInt((WorkerManager.rations) * WorkerManager.TotalWorkers).ToString();
+        waterCost.Text = Mathf.RoundToInt((WorkerManager.rations) * WorkerManager.TotalWorkers).ToString();
+        creditCost.Text = (WorkerManager.wages * WorkerManager.TotalWorkers).ToString();
 
-        efficiencyText.Text = $"Efficiency: {WorkerManager.CalculateGlobalWorkerEfficiency() * 100}%";
+        efficiencyText.Text = $"Efficiency: {Mathf.RoundToInt(WorkerManager.CalculateGlobalWorkerEfficiency() * 100)}%";
     }
 
     private void UpdateHappiness(Unit unit)
@@ -156,6 +171,9 @@ public class WorkerMenu : WindowPopup
 
     private void UpdateHappiness()
     {
+        if(SaveLoadManager.Loading)
+            return;
+
         List<HappinessFactor> factors = WorkerManager.CalculateHappiness(out int happiness);
         averageHappinessText.Text = $"Compliance: {happiness}";
         happinessEffects.Text = "";
@@ -184,9 +202,9 @@ public class WorkerMenu : WindowPopup
         currentCost = GameConstants.infantryCost + numberHired * GameConstants.infantryCostIncrease;
         infantryHireCost.Text = "Recruit Cost: " + currentCost.ToString();
 
-        infantryFoodCost.Text = (count * WorkerManager.foodperworker * 3).ToString();
-        infantryWaterCost.Text = (count * WorkerManager.foodperworker * 3).ToString();
-        infantryCreditCost.Text = (count * WorkerManager.wagePerWorker * 3).ToString();
+        infantryFoodCost.Text = (count * WorkerManager.rations * 3).ToString();
+        infantryWaterCost.Text = (count * WorkerManager.rations * 3).ToString();
+        infantryCreditCost.Text = (count * WorkerManager.wages * 3).ToString();
     }
 
     private void AddInfantry()
@@ -231,7 +249,9 @@ public class WorkerMenu : WindowPopup
 
             if (tile.TileType != HexTileType.forest 
                 && tile.TileType != HexTileType.aspen 
-                && tile.TileType != HexTileType.grass)
+                && tile.TileType != HexTileType.grass
+                && tile.TileType != HexTileType.funkyTree
+                && tile.TileType != HexTileType.palmTree)
                 continue;
 
             target = hex;
@@ -253,7 +273,7 @@ public class WorkerMenu : WindowPopup
         //recruit unit
         HexTechTree.ChangeTechCredits(-currentCost);
         numberHired++;
-        GameObject newUnit =  unitManager.InstantiateUnitByType(PlayerUnitType.infantry, target);
+        GameObject newUnit = unitManager.InstantiateUnitByType(PlayerUnitType.infantry, target);
         MessageData newInfantryMessage = new MessageData();
         newInfantryMessage.message = "Security unit recruited.";
         newInfantryMessage.messageColor = ColorManager.GetColor(ColorCode.highPriority);
@@ -279,34 +299,17 @@ public class WorkerMenu : WindowPopup
         rallyPointMarker.transform.position = rallyLocation.Value.ToVector3() + Vector3.up * 0.01f;
     }
 
-    private void SetRations(Toggle toggle, bool isOn)
+    private void SetRations(float rations)
     {
-        if (!isOn)
-            return;
-
-        if(toggle == halfRations && isOn)
-        {
-            currentRations = Rations.Half;
-            WorkerManager.foodperworker = 0.5f * WorkerManager.baseFoodPerWorker;
-        }
-        else if(toggle == fullRations && isOn)
-        {
-            currentRations = Rations.Full;
-            WorkerManager.foodperworker = WorkerManager.baseFoodPerWorker;
-        }
-        else if(toggle == doubleRations && isOn)
-        {
-            currentRations = Rations.Double;
-            WorkerManager.foodperworker = 2 * WorkerManager.baseFoodPerWorker;
-        }
+        WorkerManager.rations = rations / 10f; //slider is set to integers for snapping
         UpdateWorkerValues();
         UpdateHappiness();
         RationSet?.Invoke();
     }
 
-    private void SetWage(float wage)
+    private void SetWage(float wages)
     {
-        WorkerManager.wagePerWorker = Mathf.RoundToInt(wage);
+        WorkerManager.wages = Mathf.RoundToInt(wages);
         UpdateWorkerValues();
         UpdateHappiness();
         WagesSet?.Invoke();
@@ -314,7 +317,7 @@ public class WorkerMenu : WindowPopup
 
     private void RemoveWorker()
     {
-        if(WorkerManager.availableWorkers > 0)
+        if(WorkerManager.AvailableWorkers > 0)
         {
             WorkerManager.HireWorker(-1);
             UpdateWorkerValues();
@@ -349,6 +352,15 @@ public class WorkerMenu : WindowPopup
         if(!workerMenuUnlocked)
             return;
 
+        if (!animationHandle.IsComplete())
+        {
+            animationHandle.Complete();
+            openButtonBlock.Color = Color.white;
+        }
+
+        wagesSlider.Value = WorkerManager.wages;
+        rationsSlider.Value = WorkerManager.rations * 10f; //slider uses integers for snapping
+
         base.OpenWindow();
         rallyPointMarker.SetActive(true);
         UpdateWorkerValues();
@@ -365,12 +377,124 @@ public class WorkerMenu : WindowPopup
     private void UnlockWindow()
     {
         workerMenuUnlocked = true;
+        if (!StateOfTheGame.tutorialSkipped && !SaveLoadManager.Loading)
+            OpenWindow();
+        ButtonOn();
     }
 
-    private enum Rations
+    private void ButtonOff()
+    {
+        openButton.GetComponent<Interactable>().ClickBehavior = ClickBehavior.None;
+        openButtonBlock.Color = ColorManager.GetColor(ColorCode.buttonGreyOut);
+    }
+
+    private void ButtonOn()
+    {
+        Interactable interactable = openButton.GetComponent<Interactable>();
+        if (interactable.ClickBehavior == ClickBehavior.OnRelease)
+            return; //we're already on
+
+        openButton.GetComponent<Interactable>().ClickBehavior = ClickBehavior.OnRelease;
+
+        if (!StateOfTheGame.tutorialSkipped && !SaveLoadManager.Loading)
+        {
+            ButtonHighlightAnimation animation = new ButtonHighlightAnimation()
+            {
+                startSize = new Vector3(50, 50, 0),
+                endSize = new Vector3(50, 50, 0) * 1.1f,
+                startColor = ColorManager.GetColor(ColorCode.callOut),
+                endColor = ColorManager.GetColor(ColorCode.callOut),
+                endAlpha = 0.5f,
+                uIBlock = openButtonBlock
+            };
+            ButtonIndicator.IndicatorButton(openButtonBlock);
+            animationHandle = animation.Loop(1f, -1);
+        }
+        else
+        {
+            openButtonBlock.Color = Color.white;
+        }
+    }
+
+    public void RegisterDataSaving()
+    {
+        //load after worker manager
+        SaveLoadManager.RegisterData(this, 5);
+    }
+
+    private const string WORKER_MENU_PATH = "WorkerMenu";
+
+    public void Save(string savePath, ES3Writer writer)
+    {
+        WorkerMenuData data = new WorkerMenuData
+        {
+            MenuUnlocked = workerMenuUnlocked,
+            CurrentRations = currentRations,
+            CurrentWage = currentWages,
+        };
+        writer.Write<WorkerMenuData>(WORKER_MENU_PATH, data);
+    }
+
+    public IEnumerator Load(string loadPath, Action<string> postUpdateMessage)
+    {
+        if (ES3.KeyExists(WORKER_MENU_PATH, loadPath))
+        {
+            WorkerMenuData data = ES3.Load<WorkerMenuData>(WORKER_MENU_PATH, loadPath);
+
+            workerMenuUnlocked = data.MenuUnlocked;
+            if (data.MenuUnlocked)
+                UnlockWindow();
+            
+            //switch (data.CurrentRations)
+            //{
+            //    case Rations.Half:
+            //        halfRations.ToggledOn = true;
+            //        break;
+            //    case Rations.Full:
+            //        fullRations.ToggledOn = true;
+            //        break;
+            //    case Rations.Double:
+            //        doubleRations.ToggledOn = true;
+            //        break;
+            //}
+
+            //switch (data.CurrentWage)
+            //{
+            //    case Wages.Half:
+            //        halfWages.ToggledOn = true;
+            //        break;
+            //    case Wages.Full:
+            //        fullWages.ToggledOn = true;
+            //        break;
+            //    case Wages.Double:
+            //        doubleWages.ToggledOn = true;
+            //        break;
+            //}
+        }
+
+        yield return null;
+    }
+
+    public struct WorkerMenuData
+    {
+        public bool MenuUnlocked;
+        public Rations CurrentRations;
+        public Wages CurrentWage;
+        public float Rations;
+        public int Wages;
+    }
+
+    public enum Rations
     {
         Half,
         Full,
         Double
+    }
+
+    public enum Wages
+    {
+        Half = 3,
+        Full = 6,
+        Double = 12,
     }
 }

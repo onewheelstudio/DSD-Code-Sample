@@ -27,7 +27,7 @@ namespace NovaSamples.UIControls
         {
             visuals.toolTip?.OpenToolTip();
             if(visuals.hoverScale > 1f)
-                evt.Receiver.transform.DOScale(visuals.hoverScale, 0.1f);
+                evt.Receiver.transform.DOScale(visuals.hoverScale, 0.1f).SetUpdate(true);
             ButtonVisuals.HandleHovered(evt, visuals);
         }
 
@@ -35,7 +35,7 @@ namespace NovaSamples.UIControls
         {
             visuals.toolTip?.CloseTip();
             if(visuals.hoverScale > 1f)
-                evt.Receiver.transform.DOScale(1f, 0.1f);
+                evt.Receiver.transform.DOScale(1f, 0.1f).SetUpdate(true);
             ButtonVisuals.HandleUnhovered(evt, visuals);
         }
     }

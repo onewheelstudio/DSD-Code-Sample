@@ -1,6 +1,4 @@
-using HexGame.Grid;
 using HexGame.Units;
-using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -11,7 +9,7 @@ public class MoveMarineUnitDirective : DirectiveBase
     [SerializeField] private int movesRequired = 1;
     public override List<string> DisplayText()
     {
-        return new List<string>() { $"Explore with infantry unit: {numberOfMoves}/{movesRequired}" };
+        return new List<string>() { $"Explore the area with {PlayerUnitType.infantry.ToNiceStringPlural()}: {numberOfMoves}/{movesRequired}" };
     }
 
     public override void OnComplete()
@@ -23,7 +21,8 @@ public class MoveMarineUnitDirective : DirectiveBase
 
     public override void Initialize()
     {
-        numberOfMoves = 0;
+        base.Initialize();
+        //numberOfMoves = 0;
         MarineBehavior.marineMovedStarted += MarineMoved;
 
         if(OnStartCommunication != null)

@@ -3,11 +3,12 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
 using Sirenix.OdinInspector;
+using System;
 
 [CreateAssetMenu(menuName = "Hex/Directives/Building Count Directive")]
 public partial class BuildingDirective : DirectiveBase, ISelfValidator
 {
-    [SerializeField]private List<BuildingRequirement> buildingRequirements = new List<BuildingRequirement>();
+    [SerializeField] private List<BuildingRequirement> buildingRequirements = new List<BuildingRequirement>();
     [SerializeField] private bool allowAlreadyBuiltUnits = true;
 
     [Title("Units To Unlock")]
@@ -16,11 +17,18 @@ public partial class BuildingDirective : DirectiveBase, ISelfValidator
     [Header("Unlock on Complete")]
     [SerializeField] private List<PlayerUnitType> unlockOnComplete = new List<PlayerUnitType>();
 
+    [SerializeField] private bool actionOnBuildingSpot = false;
+    [NonSerialized] private bool onBuildingSpotTriggered = false;
+    [SerializeField, ShowIf("actionOnBuildingSpot")] private CommunicationBase communicationOnBuildingSpot;
+
     public override void Initialize()
     {
+        base.Initialize();
         Unit.unitCreated += UnitCreated;
         Unit.unitRemoved += UnitRemoved;
-        buildingRequirements.ForEach(br => br.numberBuilt = 0);
+        if(actionOnBuildingSpot)
+            UnitManager.unitPlaced += UnitPlaced;
+        //buildingRequirements.ForEach(br => br.numberBuilt = 0);
         CheckAlreadyBuilt();
         CommunicationMenu.AddCommunication(OnStartCommunication);
 
@@ -32,12 +40,16 @@ public partial class BuildingDirective : DirectiveBase, ISelfValidator
     {
         Unit.unitCreated -= UnitCreated;
         Unit.unitRemoved -= UnitRemoved;
+        if(actionOnBuildingSpot)
+            UnitManager.unitPlaced -= UnitPlaced;
         CommunicationMenu.AddCommunication(OnCompleteCommunication);
         OnCompleteTrigger.ForEach(t => t.DoTrigger());
 
         BuildMenu bm = FindObjectOfType<BuildMenu>();
         unlockOnComplete.ForEach(ut => bm.UnLockUnit(ut));
     }
+
+
 
     private void UnitRemoved(Unit unit)
     {
@@ -62,6 +74,32 @@ public partial class BuildingDirective : DirectiveBase, ISelfValidator
 
             br.numberBuilt++;
             DirectiveUpdated();
+        }
+    }
+
+    private void UnitPlaced(Unit unit)
+    {
+        if (onBuildingSpotTriggered) //prevent re-triggering if building spot deleted and re-placed
+            return;
+
+        if (unit is PlayerUnit playerUnit)
+        {
+            if (actionOnBuildingSpot && playerUnit.unitType == PlayerUnitType.buildingSpot)
+            {
+                BuildingSpotBehavior bsb = playerUnit.GetComponent<BuildingSpotBehavior>();
+                BuildingRequirement br = GetBuildingRequirement(bsb.unitTypeToBuild);
+                if (br == null)
+                    return;
+
+                br.numberPlaced++;
+                bool complete = buildingRequirements.Count(br => br.numberPlaced >= br.totalToBuild) == buildingRequirements.Count;
+                if(complete)
+                {
+                    CommunicationMenu.AddCommunication(communicationOnBuildingSpot);
+                    onBuildingSpotTriggered = true;
+                }
+                return;
+            }
         }
     }
 

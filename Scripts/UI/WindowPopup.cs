@@ -1,11 +1,11 @@
 ﻿using DG.Tweening;
 using Nova;
+using NovaSamples.UIControls;
 using Sirenix.OdinInspector;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.SceneManagement;
 
 [RequireComponent(typeof(ClipMask))]
 public abstract class WindowPopup : MonoBehaviour
@@ -14,12 +14,20 @@ public abstract class WindowPopup : MonoBehaviour
     public static List<WindowPopup> openWindows = new List<WindowPopup>();
     public bool instanceIsOpen;
     public static bool blockWindowHotkeys = false;
+    public static bool BlockWindowHotkeys
+    {
+        get
+        {
+            return blockWindowHotkeys || TextFieldSelector.IsFocused;
+        }
+    }
     [SerializeField]
     protected ClipMask clipMask;
     protected UIControlActions uiControls;
     protected InputAction closeWindow;
     public event Action windowOpened;
     public event Action windowClosed;
+    public static event Action<WindowPopup> SomeWindowOpened;
     public InputActionReference toggleWindow;
     public InputActionReference openWindow;
     protected NovaGroup novaGroup;
@@ -27,11 +35,17 @@ public abstract class WindowPopup : MonoBehaviour
     protected Tween openCloseTween;
     [SerializeField] protected InteractableControl interactableControl;
     protected UIBlock2D uiBlock;
+    protected static DayNightManager dayNightManager;
+    protected UnitManager unitManager;
+    [SerializeField]
+    private bool playOpenCloseSFX = true;
 
     public virtual void OnEnable()
     {
         if (uiBlock == null)
             uiBlock = this.GetComponent<UIBlock2D>();
+
+        unitManager = FindFirstObjectByType<UnitManager>();
 
         uiControls = new UIControlActions();
         uiControls.UI.CloseWindow.performed += CloseWindow;
@@ -50,10 +64,7 @@ public abstract class WindowPopup : MonoBehaviour
 
         if (novaGroup == null)
             novaGroup = this.GetComponent<NovaGroup>();
-
     }
-
-
 
     public virtual void OnDisable()
     {
@@ -90,9 +101,11 @@ public abstract class WindowPopup : MonoBehaviour
     [ButtonGroup("WindowButtons")]
     public virtual void OpenWindow()
     {
-        //if (pauseOnOpen)
-            //Time.timeScale = 0f;
+        OpenWindow(true);
+    }
 
+    public virtual void OpenWindow(bool cancelAction)
+    {
         instanceIsOpen = true;
         isOpen = true;
 
@@ -108,29 +121,40 @@ public abstract class WindowPopup : MonoBehaviour
 
         this.transform.SetAsLastSibling();
         if (novaGroup != null)
-            novaGroup.interactable = true;
-        if(uiBlock != null)
-            this.uiBlock.Visible = true;
+        {
+            novaGroup.Interactable = true;
+            novaGroup.Visible = true;
+        }
+
         windowOpened?.Invoke();
+        if(cancelAction)
+            SomeWindowOpened?.Invoke(this);
         if(!openWindows.Contains(this))
             openWindows.Add(this);
 
-        if(pauseOnOpen)
-            Time.timeScale = 0f;
+        if (dayNightManager == null)
+            dayNightManager = FindFirstObjectByType<DayNightManager>();
+
+        if (pauseOnOpen)
+            dayNightManager.SetPause(true, false);
+
+        if (playOpenCloseSFX)
+            SFXManager.PlaySFX(SFXType.openMenu, false);
     }
 
     protected void CloseWindow(InputAction.CallbackContext obj)
     {
+        if (unitManager != null && unitManager.IsPlacing && UnitSelectionManager.selectedUnit != null)
+            return;
+
         if(openWindows.Count > 0 && openWindows[openWindows.Count - 1] == this)
             openWindows[openWindows.Count - 1].CloseWindow();
+
     }
 
     [ButtonGroup("WindowButtons")]
     public virtual void CloseWindow()
     {
-        //if (pauseOnOpen)
-        //    Time.timeScale = 1f;
-
         if (clipMask == null)
             clipMask = this.GetComponent<ClipMask>();
 
@@ -141,28 +165,29 @@ public abstract class WindowPopup : MonoBehaviour
         else
             clipMask.SetAlpha(0f);
 
-        if (uiBlock == null)
-            uiBlock = this.GetComponent<UIBlock2D>();
-
-        if(uiBlock != null)
-            this.uiBlock.Visible = false;
-
-        //clipMask.interactable = false;
-        //clipMask.obstructDrags = false;
         isOpen = false;
         instanceIsOpen = false;
         if(novaGroup != null)
-            novaGroup.interactable = false;
+        {
+            novaGroup.Interactable = false;
+            novaGroup.Visible = false;
+        }
         windowClosed?.Invoke();
         openWindows.Remove(this);
 
-        if(pauseOnOpen)
-            Time.timeScale = 1f;
+        if(dayNightManager == null)
+            dayNightManager = FindFirstObjectByType<DayNightManager>();
+
+        if (pauseOnOpen)
+            dayNightManager.SetPause(false, false);
+
+        if(playOpenCloseSFX)
+            SFXManager.PlaySFX(SFXType.closeMenu, false);
     }
 
     private void ToggleWindow(InputAction.CallbackContext obj)
     {
-        if (blockWindowHotkeys)
+        if (BlockWindowHotkeys)
             return;
         ToggleWindow();
     }
@@ -172,5 +197,10 @@ public abstract class WindowPopup : MonoBehaviour
             CloseWindow();
         else
             OpenWindow();
+    }
+
+    public static void SetBlockWindowHotkeys(bool block)
+    {
+        blockWindowHotkeys = block;
     }
 }

@@ -9,6 +9,7 @@ public class EnemySubUnit : MonoBehaviour
 {
 
     [SerializeField] private EnemyUnit parentUnit;
+    public EnemyUnit ParentUnit => parentUnit;
     [SerializeField] private FollowParent followParent;
     [SerializeField] private Vector3 targetPoint;
     public Vector3 TargetPoint => targetPoint + this.transform.position;
@@ -80,7 +81,8 @@ public class EnemySubUnit : MonoBehaviour
         subUnitDied?.Invoke(parentUnit.type);
         this.transform.position -= Vector3.up * 10f;
         this.gameObject.SetActive(false);
-        SFXManager.PlaySFX(SFXType.enemyDeath);
+        if (!SaveLoadManager.Loading)
+            SFXManager.PlaySFX(SFXType.enemyDeath);
         //PlayDeath();
         //StartCoroutine(DelayTurnOff());
     }

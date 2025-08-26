@@ -18,12 +18,21 @@ public class SFXManager : MonoBehaviour
     [SerializeField]
     [TabGroup("UI")]
     private SFX click;
+    [SerializeField]
+    [TabGroup("UI")]
+    private SFX openMenu;
+    [SerializeField]
+    [TabGroup("UI")]
+    private SFX closeMenu;
     [TabGroup("Units")]
     [SerializeField]
     private SFX unitSelection;
     [TabGroup("Units")]
     [SerializeField]
     private SFX buildingPlacement;
+    [TabGroup("Units")]
+    [SerializeField]
+    private SFX buildingCompletion;
     [TabGroup("Other")]
     [SerializeField, TabGroup("Other")]
     private SFX placeTile;
@@ -48,7 +57,7 @@ public class SFXManager : MonoBehaviour
 
     private void Awake()
     {
-        audioSourcePool = new ObjectPool<SFXAudioSource>(sfxAudioSourcePrefab, 5);
+        audioSourcePool = new ObjectPool<SFXAudioSource>(sfxAudioSourcePrefab);
         activeSFXAudio = new List<SFXAudioSource>();
     }
 
@@ -77,17 +86,19 @@ public class SFXManager : MonoBehaviour
         unitSelection.PlayClip(GetAudioSource(), true);
     }
 
-    private void BuildingPlaced(Unit obj)
+    private void BuildingPlaced(Unit unit)
     {
-        if (obj is PlayerUnit playerUnit && playerUnit.unitType == PlayerUnitType.buildingSpot)
+        if(SaveLoadManager.Loading)
+            return;
+
+        if (unit is PlayerUnit playerUnit && playerUnit.unitType == PlayerUnitType.buildingSpot)
             buildingPlacement.PlayClip(GetAudioSource(), true);
-        else
-            Debug.Log("You need to add some finished building effects");
+        else if(unit is PlayerUnit)
+            buildingCompletion.PlayClip(GetAudioSource(), true);
     }
 
     private void PlayStartOfNight(int dayNumber, float delay)
     {
-        //startNight.PlayClip(GetAudioSource(), true);
         StartCoroutine(PlayDelayed(startNight, delay));
     }
 
@@ -146,9 +157,15 @@ public class SFXManager : MonoBehaviour
                 break;
             case SFXType.ResourceReveal:
                 sfxToPlay = resourceReveal;
-                    break;
+                break;
             case SFXType.enemyDeath:
                 sfxToPlay = enemyDeath;
+                break;
+            case SFXType.openMenu:
+                sfxToPlay = openMenu;
+                break;
+            case SFXType.closeMenu:
+                sfxToPlay = closeMenu;
                 break;
             default:
                 break;
@@ -212,6 +229,8 @@ public class SFXManager : MonoBehaviour
         public float pitchVariange = 0.05f;
         [SerializeField]
         protected AudioMixer audioMixer;
+        [SerializeField]
+        protected AudioMixerGroup audioMixerGroup;
 
         public SFX(SFX sfx)
         {
@@ -233,7 +252,7 @@ public class SFXManager : MonoBehaviour
                 audioSource.clip = clips[Random.Range(0, clips.Count)];
                 audioSource.volume = volume + Random.Range(-volumeVariange, volumeVariange);
                 audioSource.pitch = pitch + Random.Range(-volumeVariange, volumeVariange);
-                audioSource.outputAudioMixerGroup = audioMixer?.outputAudioMixerGroup;
+                audioSource.outputAudioMixerGroup = audioMixerGroup;
                 audioSource.Play();
             }
         }
@@ -255,9 +274,6 @@ public class SFXManager : MonoBehaviour
                 audioSource.Play();
             }
         }
-
-
-
     }
 }
 public enum SFXType
@@ -274,4 +290,6 @@ public enum SFXType
     DirectiveUpdated,
     ResourceReveal,
     enemyDeath,
+    openMenu,
+    closeMenu,
 }

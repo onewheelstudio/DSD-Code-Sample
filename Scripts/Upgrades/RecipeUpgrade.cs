@@ -1,11 +1,13 @@
 using HexGame.Resources;
 using HexGame.Units;
+using Sirenix.OdinInspector;
 using System.Collections.Generic;
 using UnityEngine;
 
 [CreateAssetMenu(menuName = "Hex/Upgrades/Recipe Upgrade")]
 public class RecipeUpgrade : Upgrade
 {
+    [Required]
     public ResourceProduction recipe;
     public ResourceType resourceType => recipe.GetProduction()[0].type;
     public PlayerUnitType usedByUnit;
@@ -26,9 +28,11 @@ public class RecipeUpgrade : Upgrade
 
         string description = $"Allows the production of {GetResourceString(this.recipe.GetProduction())} at a {buildingString}.";
 
+        if(!string.IsNullOrEmpty(this.description))
+            description += "\n\n" + this.description;
         description += $"\n\nProduction requires {GetResourceString(this.recipe.GetCost())}.";
         description += $"\n\nTime Required: {timeString}";
-        return description + " " + this.description;
+        return description;
     }
 
     private object GetResourceString(List<ResourceAmount> resources)

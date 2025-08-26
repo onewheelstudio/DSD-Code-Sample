@@ -5,14 +5,19 @@ using UnityEngine;
 
 public class HexIndicator : MonoBehaviour, IPoolable<HexIndicator>
 {
-
     private Action<HexIndicator> returnToPool;
-    public MeshRenderer meshRenderer;
-
-    private void Awake()
+    public MeshRenderer MeshRenderer
     {
-        meshRenderer = GetComponentInChildren<MeshRenderer>();
+        get
+        {
+            if (meshRenderer == null)
+            {
+                meshRenderer = GetComponentInChildren<MeshRenderer>();
+            }
+            return meshRenderer;
+        }
     }
+    private MeshRenderer meshRenderer;
 
     private void OnEnable()
     {

@@ -6,6 +6,7 @@ using UnityEngine;
 public class StatBar : MonoBehaviour
 {
     [SerializeField] private UIBlock2D statBar;
+    [SerializeField] private TextBlock label;
     private List<UIBlock2D> statBars = new List<UIBlock2D>();
     private ClipMask clipMask;
 
@@ -54,9 +55,14 @@ public class StatBar : MonoBehaviour
             statBars[i].gameObject.SetActive(false);
     }
 
-    internal void ResetAll()
+    internal void ResetAllBars()
     {
         foreach (var bar in statBars)
             bar.Size.X.Percent = 0.025f;
+    }
+
+    public void SetLabel(string labelText)
+    {
+        label.Text = labelText;
     }
 }

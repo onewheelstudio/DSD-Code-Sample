@@ -103,6 +103,18 @@ public class FogGroundTile : MonoBehaviour, ISelfValidator
         isDown = true;
     }
 
+    public void MoveToPlacedConfiguration()
+    {
+        StartCoroutine(DelayPlacement());
+    }
+
+    private IEnumerator DelayPlacement()
+    {
+        DoTileAppear(tweenTime, ease);
+        yield return new WaitForSeconds(tweenTime * 2);
+        DoTileDisappear(tweenTime, ease);
+    }
+
     private void OnDisable()
     {
         DOTween.Kill(this, true);
@@ -243,7 +255,39 @@ public class FogGroundTile : MonoBehaviour, ISelfValidator
         await Task.Yield();
         foreach (var agent in fogRevealers)
         {
+            if(agent == null)
+                continue;
+
             AddAgent(agent);
         }
+    }
+
+    public void RevealTile()
+    {
+        if(hasBeenRevealed)
+            return;
+
+        if (miniMapIcon && !hasBeenRevealed)
+            miniMapIcon.localScale = Vector3.one * miniMapStartScale;
+
+        if (doScale)
+        {
+            //if (meshObject)
+            //    meshObject.localScale = Vector3.zero;
+            if (blankTile)
+                blankTile.localScale = Vector3.zero;
+            if (revealedBlank)
+                revealedBlank.localScale = Vector3.one * blankTileStartScale;
+        }
+        if (doMove)
+        {
+            //if (meshObject)
+            //    meshObject.localPosition = Vector3.down * moveDistance;
+            if (blankTile)
+                blankTile.localPosition = Vector3.down * moveDistance;
+            if (revealedBlank)
+                revealedBlank.localPosition = Vector3.zero;
+        }
+        hasBeenRevealed = true;
     }
 }

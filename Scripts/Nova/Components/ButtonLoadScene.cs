@@ -13,6 +13,13 @@ public class ButtonLoadScene : MonoBehaviour
     [SerializeField] private bool useLoadingScreen = true;
     [SerializeField] private UnityEvent beforeLoad;
     private int currentIndex = 0;
+    private static bool isLoading = false;
+    public static bool IsLoading => isLoading;
+
+    private void Awake()
+    {
+        isLoading = false;
+    }
 
     private void OnEnable()
     {
@@ -27,8 +34,12 @@ public class ButtonLoadScene : MonoBehaviour
     private void LoadScene()
     {
         beforeLoad.Invoke();
+        isLoading = true;
         if (useLoadingScreen)
+        {
             LoadingScreenManager.StartLoadingScreen();
+            isLoading = false;
+        }
         else
         {
             StartCoroutine(LoadAsync());
@@ -38,15 +49,15 @@ public class ButtonLoadScene : MonoBehaviour
 
     IEnumerator LoadAsync()
     {
-
         AsyncOperation async = UnityEngine.SceneManagement.SceneManager.LoadSceneAsync(sceneIndex, mode);
 
         while (!async.isDone)
         {
             yield return null;
         }
-
+        isLoading = false;
         if (unloadCurrent)
             UnityEngine.SceneManagement.SceneManager.UnloadSceneAsync(currentIndex);
+
     }
 }

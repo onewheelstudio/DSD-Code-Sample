@@ -10,16 +10,6 @@ public class TerraFormingManager : MonoBehaviour
     private static TerraFormingWindow terraFormingWindow;
     private static TerraformerBehavior currentTerraFormer;
     private static UnitStorageBehavior currentUSB;
-    private UIControlActions currentUIActions;
-
-    private void Awake()
-    {
-        currentUIActions = new UIControlActions();
-    }
-
-    private void OnDisable()
-    {
-    }
 
     private void OnEnable()
     {

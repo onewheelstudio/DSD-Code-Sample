@@ -16,8 +16,9 @@ public class Drone : MonoBehaviour
     [SerializeField] private GameObject beamObject;
     [SerializeField] private LayerMask layerMask;
     private bool isDoing = false;
-    public bool IsMining => isDoing;
+    public bool IsDoing => isDoing;
     private Vector3 startPosition;
+    private Sequence hoveMoveSequence;
 
     private void Awake()
     {
@@ -27,13 +28,19 @@ public class Drone : MonoBehaviour
         speed += Random.Range(-0.1f, 0.1f);
     }
 
+    private void OnDisable()
+    {
+        DOTween.Kill(this, true);
+        hoveMoveSequence.Kill();
+    }
+
     [Button]
     public void MoveToLocation(Hex3 location)
     {
         StartCoroutine(DoDroneAction(location));
     }
 
-    public IEnumerator DoDroneAction(Vector3 position)
+    public IEnumerator DoDroneAction(Vector3 position, bool continuousMove = false)
     {
         isDoing = true;
         float angle = Random.Range(0, Mathf.PI * 2f);
@@ -44,7 +51,7 @@ public class Drone : MonoBehaviour
             float moveTime = (this.transform.position - position).magnitude / speed;
             float verticalTime = 2f * Mathf.Abs(hoverHeight) / speed;
 
-            Sequence hoveMoveSequence = DOTween.Sequence();
+            hoveMoveSequence = DOTween.Sequence();
             hoveMoveSequence.Append(this.transform.DOMoveY(hoverHeight, verticalTime));
             hoveMoveSequence.Append(this.transform.DOLookAt(position, 0.75f, AxisConstraint.Y, Vector3.up));
             hoveMoveSequence.Append(this.transform.DOMove(position + Vector3.up * hoverHeight, moveTime));
@@ -69,7 +76,7 @@ public class Drone : MonoBehaviour
             float moveTime = (this.transform.position - position).magnitude / speed;
             float verticalTime = 2f * Mathf.Abs(hoverHeight) / speed;
 
-            Sequence hoveMoveSequence = DOTween.Sequence();
+            hoveMoveSequence = DOTween.Sequence();
             hoveMoveSequence.Append(this.transform.DOMoveY(hoverHeight, verticalTime));
             hoveMoveSequence.Append(this.transform.DOLookAt(position, 0.75f, AxisConstraint.Y, Vector3.up));
             hoveMoveSequence.Append(this.transform.DOMove(position + Vector3.up * hoverHeight, moveTime));
@@ -80,30 +87,33 @@ public class Drone : MonoBehaviour
             ToggleBeam(false);
         }
 
-        isDoing = false;
+        //does not set isDoing to false - check if that would break RepairBehavior
     }
 
     [Button]
-    public void DoReturnToStart()
+    public void DoReturnToPosition()
     {
+        //already at start position so don't do anything
+        if ((this.transform.position - startPosition).sqrMagnitude < 0.1f)
+            return;
+
         StopAllCoroutines();
-        StartCoroutine(ReturnToStart());
+        StartCoroutine(ReturnToPosition());
     }
 
-    private IEnumerator ReturnToStart()
+    private IEnumerator ReturnToPosition()
     {
-        isDoing = true;
+        yield return null;
         ToggleBeam(false);
         float moveTime = (this.transform.position - startPosition).magnitude / speed;
         float verticalTime = 2f * Mathf.Abs(hoverHeight) / speed;
 
-        Sequence hoveMoveSequence = DOTween.Sequence();
-        hoveMoveSequence.Append(this.transform.DOLookAt(this.transform.parent.position + startPosition + Vector3.up * hoverHeight, 0.75f, AxisConstraint.Y, Vector3.up));
+        hoveMoveSequence = DOTween.Sequence();
+        hoveMoveSequence.Append(this.transform.DOLookAt(this.transform.position + startPosition + Vector3.up * hoverHeight, 0.75f, AxisConstraint.Y, Vector3.up));
         hoveMoveSequence.Append(this.transform.DOLocalMove(startPosition + Vector3.up * hoverHeight, moveTime));
         hoveMoveSequence.Append(this.transform.DOLocalMove(startPosition, verticalTime));
+        hoveMoveSequence.onComplete = () => isDoing = false;
         yield return hoveMoveSequence.WaitForCompletion();
-        
-        isDoing = false;
     }
 
     private void ToggleBeam(bool isOn)

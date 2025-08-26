@@ -16,6 +16,7 @@ public class MissionText : MonoBehaviour
 
     [SerializeField] private List<AudioClip> audioClipList;
     private AudioSource audioSource;
+    Tween clickToContinueTween;
 
     private void Start()
     {
@@ -37,7 +38,7 @@ public class MissionText : MonoBehaviour
 
     private void OnDisable()
     {
-        DOTween.Kill(clickToContinue.gameObject);
+        DOTween.Kill(clickToContinue);
         DOTween.Kill(this,true);
     }
 
@@ -79,6 +80,7 @@ public class MissionText : MonoBehaviour
         yield return new WaitUntil(() => Mouse.current.leftButton.wasPressedThisFrame);
         StartCoroutine(FadeOut(backgroundClipMask));
         yield return StartCoroutine(FadeOut(messageClipMask));
+        clickToContinueTween.Kill();
         this.gameObject.SetActive(false);
     }
 
@@ -105,6 +107,6 @@ public class MissionText : MonoBehaviour
     {
         yield return new WaitForSeconds(5f);
         clickToContinue.gameObject.SetActive(true);
-        Tween tween = clickToContinue.DoFade(0f, 1f).SetLoops(-1, LoopType.Yoyo);
+        clickToContinueTween = clickToContinue.DoFade(0f, 1f).SetLoops(-1, LoopType.Yoyo);
     }
 }

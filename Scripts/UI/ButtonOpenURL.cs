@@ -12,12 +12,12 @@ public class ButtonOpenURL : MonoBehaviour
     private void OnEnable()
     {
         button = this.GetComponent<Button>();
-        button.clicked += OpenURL;
+        button.Clicked += OpenURL;
     }
 
     private void OnDisable()
     {
-        button.clicked -= OpenURL;
+        button.Clicked -= OpenURL;
     }
 
     private void OpenURL()

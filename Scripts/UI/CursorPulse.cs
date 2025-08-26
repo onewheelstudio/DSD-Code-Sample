@@ -1,7 +1,5 @@
-using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
 using DG.Tweening;
+using UnityEngine;
 
 public class CursorPulse : MonoBehaviour
 {
@@ -36,6 +34,6 @@ public class CursorPulse : MonoBehaviour
         sequence.Append(this.transform.DOScale(startScale * scale, scaleTime).SetEase(Ease.Linear));
         sequence.Append(this.transform.DOScale(startScale, scaleTime).SetEase(Ease.Linear));
 
-        sequence.SetLoops(-1);
+        sequence.SetLoops(-1, LoopType.Yoyo);
     }
 }

@@ -8,13 +8,13 @@ public class CloseWindowButton : MonoBehaviour
     private WindowPopup popup;
     private void OnEnable()
     {
-        this.GetComponent<Button>().clicked += CloseWindow;
+        this.GetComponent<Button>().Clicked += CloseWindow;
         popup = GetComponentInParent<WindowPopup>();
     }
 
     private void OnDisable()
     {
-        this.GetComponent<Button>().clicked -= CloseWindow;
+        this.GetComponent<Button>().Clicked -= CloseWindow;
     }
 
     private void CloseWindow()

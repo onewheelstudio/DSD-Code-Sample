@@ -31,11 +31,12 @@ public class LocationIndicatorManager : MonoBehaviour
     private void OnEnable()
     {
         UnitManager.unitPlaced += UpdateIndicators;
-        MarineBehavior.maringMovingToLocation += MarineMoving;
+        MarineBehavior.maringMovingToLocation += BehaviorMoving;
         FogGroundTile.TileRevealed += TileRevealed;
         UnitManager.unitPlacementStarted += UnitPlacementStarted;
         UnitManager.unitPlacementFinished += HideIndicators;
         UnLockTechTree.unLockTechTree += CompleteTutorial;
+        SaveLoadManager.LoadComplete += CompleteTutorial; //turn off this manager if loading a game.
         //FogGroundTile.TileHidden += TileHidden;
 
     }
@@ -43,11 +44,12 @@ public class LocationIndicatorManager : MonoBehaviour
     private void OnDisable()
     {
         UnitManager.unitPlaced -= UpdateIndicators;
-        MarineBehavior.maringMovingToLocation -= MarineMoving;
+        MarineBehavior.maringMovingToLocation -= BehaviorMoving;
         FogGroundTile.TileRevealed -= TileRevealed;
         UnitManager.unitPlacementStarted -= UnitPlacementStarted;
         UnitManager.unitPlacementFinished -= HideIndicators;
         UnLockTechTree.unLockTechTree -= CompleteTutorial;
+        SaveLoadManager.LoadComplete -= CompleteTutorial; //turn off this manager if loading a game.
 
         //FogGroundTile.TileHidden -= TileHidden;
     }
@@ -55,7 +57,7 @@ public class LocationIndicatorManager : MonoBehaviour
     private void CompleteTutorial()
     {
         UnitManager.unitPlaced -= UpdateIndicators;
-        MarineBehavior.maringMovingToLocation -= MarineMoving;
+        MarineBehavior.maringMovingToLocation -= BehaviorMoving;
         FogGroundTile.TileRevealed -= TileRevealed;
         UnitManager.unitPlacementStarted -= UnitPlacementStarted;
         UnitManager.unitPlacementFinished -= HideIndicators;
@@ -81,24 +83,24 @@ public class LocationIndicatorManager : MonoBehaviour
         {
             HexIndicator indicator = indicatorPool.Pull();
             indicator.transform.position = (Vector3)location + Vector3.up * IndicatorOffset;
-            indicator.meshRenderer.sharedMaterial = blueIndicator;
+            indicator.MeshRenderer.sharedMaterial = blueIndicator;
             indicatorList.Add(indicator);
         }
     }
 
-    private void MarineMoving(MarineBehavior behavior, Hex3 location)
+    private void BehaviorMoving(UnitBehavior behavior, Hex3 location)
     {
         if (indicatorList.Count == 0)
             return;
 
         HexIndicator indicator = indicatorList.FirstOrDefault(i => i.transform.position.ToHex3() == behavior.transform.position.ToHex3());
         if (indicator != null)
-            indicator.meshRenderer.material = blueIndicator;
+            indicator.MeshRenderer.material = blueIndicator;
 
 
         indicator = indicatorList.FirstOrDefault(i => i.transform.position.ToHex3() == location);
         if (indicator != null)
-            indicator.meshRenderer.material = redIndicator;
+            indicator.MeshRenderer.material = redIndicator;
     }
 
     private void UpdateIndicators(Unit unit)
@@ -110,7 +112,7 @@ public class LocationIndicatorManager : MonoBehaviour
         if (indicator == null)
             return;
 
-        indicator.meshRenderer.material = redIndicator;
+        indicator.MeshRenderer.material = redIndicator;
     }
 
     [Button]
@@ -122,7 +124,7 @@ public class LocationIndicatorManager : MonoBehaviour
         {
             HexIndicator indicator = indicatorPool.Pull();
             indicator.transform.position = (Vector3)location + Vector3.up * IndicatorOffset;
-            indicator.meshRenderer.material = blueIndicator;
+            indicator.MeshRenderer.material = blueIndicator;
             indicatorList.Add(indicator);
         }
     }
@@ -175,7 +177,7 @@ public class LocationIndicatorManager : MonoBehaviour
         {
             HexIndicator indicator = indicatorPool.Pull();
             indicator.transform.position = (Vector3)info.location + Vector3.up * IndicatorOffset;
-            indicator.meshRenderer.sharedMaterial = info.material;
+            indicator.MeshRenderer.sharedMaterial = info.material;
             indicatorList.Add(indicator);
         }
     }
@@ -191,7 +193,7 @@ public class LocationIndicatorManager : MonoBehaviour
         {
             HexIndicator indicator = indicatorPool.Pull();
             indicator.transform.position = (Vector3)info.location + Vector3.up * IndicatorOffset;
-            indicator.meshRenderer.sharedMaterial = info.material;
+            indicator.MeshRenderer.sharedMaterial = info.material;
             indicatorList.Add(indicator);
         }
     }
@@ -203,11 +205,17 @@ public class LocationIndicatorManager : MonoBehaviour
         List<IndicatorInfo> indicatorInfo = GetBuildableNearTerrene();
         currentIndicator = GetGrassNearStartingWater;
 
+        if(currentIndicator == null || indicatorInfo == null || indicatorInfo.Count == 0)
+        {
+            Debug.LogError("No buildable locations found");
+            return;
+        }
+
         foreach (var info in indicatorInfo)
         {
             HexIndicator indicator = indicatorPool.Pull();
             indicator.transform.position = (Vector3)info.location + Vector3.up * IndicatorOffset;
-            indicator.meshRenderer.sharedMaterial = info.material;
+            indicator.MeshRenderer.sharedMaterial = info.material;
             indicatorList.Add(indicator);
         }
     }
@@ -223,7 +231,7 @@ public class LocationIndicatorManager : MonoBehaviour
         {
             HexIndicator indicator = indicatorPool.Pull();
             indicator.transform.position = (Vector3)info.location + Vector3.up * IndicatorOffset;
-            indicator.meshRenderer.sharedMaterial = info.material;
+            indicator.MeshRenderer.sharedMaterial = info.material;
             indicatorList.Add(indicator);
         }
     }

@@ -9,6 +9,13 @@ public class EnemyRequirement
     [HideInInspector]
     public int currentAmount;
 
+    public EnemyRequirement()
+    {
+        this.enemyType = EnemyUnitType.serpent;
+        this.requiredAmount = 0;
+        this.currentAmount = 0;
+    }
+
     public EnemyRequirement(EnemyUnitType type, int amount)
     {
         this.enemyType = type;

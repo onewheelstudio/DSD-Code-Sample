@@ -10,20 +10,29 @@ public class ZoomWithScroll : MonoBehaviour
     private float maxScale = 1f;
     private float minScale = 0.4f;
     private bool canMove = false;
+    private float timeStep;
+
+    private UIControlActions uiActions;
 
     private void Awake()
     {
         targetScale = this.transform.localScale;
+        timeStep = Time.deltaTime;
+        uiActions = new UIControlActions();
     }
 
     private void OnEnable()
     {
         HexTechTree.techTreeOpen += TechTreeOpen;
+        uiActions.UI.MouseZoom.Enable();
     }
+
+
 
     private void OnDisable()
     {
         HexTechTree.techTreeOpen -= TechTreeOpen;
+        uiActions.UI.MouseZoom.Disable();
     }
 
     private void TechTreeOpen(bool techTreeIsOpen)
@@ -36,26 +45,30 @@ public class ZoomWithScroll : MonoBehaviour
         if (!canMove)
             return;
 
+        if (Time.timeScale > 0)
+            timeStep = Time.deltaTime;
+
         // Get the current scroll wheel delta
-        Vector2 mouseScrollDelta = Mouse.current.scroll.ReadValue();
+        Vector2 mouseScrollDelta = Mouse.current.scroll.ReadValue() * 120;
 
         if (DistanceFromTarget() > 0.01f)
         {
-            Vector3 newScale = Vector3.Lerp(this.transform.localScale, targetScale, Time.deltaTime * lerpSpeed);
+            Vector3 newScale = Vector3.Lerp(this.transform.localScale, targetScale, timeStep * lerpSpeed);
             this.transform.localScale = newScale;
         }
-        
+
         if (mouseScrollDelta.y == 0)
             return;
 
-        targetScale -= mouseScrollDelta.y * zoomRate * Time.deltaTime * Vector3.one;
+        targetScale += mouseScrollDelta.y * zoomRate * timeStep * Vector3.one;
 
-        if(targetScale.x < minScale)
+        if (targetScale.x < minScale)
             targetScale = minScale * Vector3.one;
         else if (targetScale.x > maxScale)
             targetScale = maxScale * Vector3.one;
 
     }
+
 
     private float DistanceFromTarget()
     {

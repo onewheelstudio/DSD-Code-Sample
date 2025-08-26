@@ -4,6 +4,7 @@ using HexGame.Resources;
 using Sirenix.OdinInspector;
 using System;
 using DG.Tweening;
+using System.Linq;
 
 namespace HexGame.Units
 {
@@ -13,48 +14,55 @@ namespace HexGame.Units
         [SerializeField]
         public PlayerUnitType unitTypeToBuild { get; private set; }
         [SerializeField]
-        private List<ResourceAmount> neededResources = new List<ResourceAmount>();
+        protected List<ResourceAmount> neededResources = new List<ResourceAmount>();
         [SerializeField]
-        private GameObject buildingPrefab;
+        protected GameObject buildingPrefab;
         [SerializeField]
-        private GameObject placeHolderPrefab;
-        private UnitStorageBehavior usb;
-        private GameObject buildingInstance;
+        protected GameObject placeHolderPrefab;
+        protected UnitStorageBehavior usb;
+        protected GameObject buildingInstance;
 
         [Header("Placement Materials")]
         [SerializeField]
-        private Material goodMaterial;
+        protected Material goodMaterial;
         [SerializeField]
-        private Material badMaterial;
-        private MeshRenderer[] meshRenders;
+        protected Material badMaterial;
+        protected MeshRenderer[] meshRenders;
         [SerializeField] private Color progressColor;
-        private StatBar progressBar;
-        private BuildOverTime buildOverTime;
-        private Stats stats;
+        protected StatBar progressBar;
+        protected BuildOverTime buildOverTime;
+        protected Stats stats;
         protected static UnitManager unitManager;
-        private static Camera mainCamera;
-        private FogRevealer fogRevealer;
-        private EnemyCrystalManager ecm;
+        protected static Camera mainCamera;
+
+        protected static Camera MainCamera
+        {
+            get
+            {
+                if (mainCamera == null)
+                    mainCamera = Camera.main;
+                return mainCamera;
+            }
+        }
+        protected FogRevealer fogRevealer;
+        protected EnemyCrystalManager ecm;
 
         public static event Action<BuildingSpotBehavior, GameObject> buildingComplete;
         public static event Action<ResourceAmount> resourceConsumed;
 
-        private void Awake()
+        protected void Awake()
         {
-            if(unitManager == null)
+            if (unitManager == null)
                 unitManager = FindObjectOfType<UnitManager>();
-
-            if(mainCamera == null)
-                mainCamera = Camera.main;
 
             if (fogRevealer == null)
                 fogRevealer = GetComponentInChildren<FogRevealer>(true);
 
-            if(ecm == null)
+            if (ecm == null)
                 ecm = FindObjectOfType<EnemyCrystalManager>();
         }
 
-        private void OnEnable()
+        protected void OnEnable()
         {
             progressBar = this.GetComponentInChildren<StatBar>();
             buildOverTime = this.GetComponentInChildren<BuildOverTime>();
@@ -79,7 +87,7 @@ namespace HexGame.Units
 
             if (usb == null)
                 usb = GetComponent<UnitStorageBehavior>();
-            usb.SetRequestPriority(CargoManager.RequestPriority.medium);
+            usb.SetRequestPriority(CargoManager.RequestPriority.high);
             usb.resourceDelivered += AreAllResoucesDelivered;
             usb.resourceDelivered += UpdateProgress;
 
@@ -87,25 +95,23 @@ namespace HexGame.Units
             if (lp)
                 usb.SetLandingPosition(lp.transform);
 
-            usb.ClearAllowedTypes();
-
-            foreach (var resource in neededResources)
-            {
-                usb.AddToAllowedTypes(resource.type);
-                usb.MakeDeliveryRequest(resource, true);
-            }
+            usb.AdjustStorageForBuildCosts(neededResources);
+            usb.UpdateStoredPosition();
 
             progressBar.Enable();
-            progressBar.ResetAll();
+            progressBar.ResetAllBars();
 
-            Sequence sequence = DOTween.Sequence();
-            sequence.Append(mainCamera.DOFieldOfView(mainCamera.fieldOfView - 0.04f, 0.05f).SetEase(Ease.Linear));
-            sequence.Append(mainCamera.DOFieldOfView(mainCamera.fieldOfView + 0.04f, 0.05f).SetEase(Ease.Linear));
-            SFXManager.PlaySFX(SFXType.buildingPlace);
+            if (!SaveLoadManager.Loading)
+            {
+                Sequence sequence = DOTween.Sequence();
+                sequence.Append(MainCamera.DOFieldOfView(MainCamera.fieldOfView - 0.04f, 0.05f).SetEase(Ease.Linear));
+                sequence.Append(MainCamera.DOFieldOfView(MainCamera.fieldOfView + 0.04f, 0.05f).SetEase(Ease.Linear));
+                SFXManager.PlaySFX(SFXType.buildingPlace);
+            }
 
             if (unitTypeToBuild == PlayerUnitType.hq)
             {
-                buildOverTime = unitManager.GetBuildOverTimeByType(unitTypeToBuild);
+                buildOverTime = unitManager.GetBuildUpByType(unitTypeToBuild);
                 buildingInstance.gameObject.SetActive(false);
                 buildOverTime.transform.SetParent(this.transform);
                 buildOverTime.transform.SetLocalPositionAndRotation(Vector3.zero, buildingInstance.transform.localRotation);
@@ -114,14 +120,14 @@ namespace HexGame.Units
             }
         }
 
-        private void UpdateProgress(UnitStorageBehavior usb, ResourceAmount res)
+        protected void UpdateProgress(UnitStorageBehavior usb, ResourceAmount res)
         {
             float percentComplete = PercentComplete();
             progressBar.UpdateStatBar(percentComplete, 0, progressColor);
-            
-            if(buildOverTime == null && percentComplete > 0f)
+
+            if (buildOverTime == null && percentComplete > 0f)
             {
-                buildOverTime = unitManager.GetBuildOverTimeByType(unitTypeToBuild);
+                buildOverTime = unitManager.GetBuildUpByType(unitTypeToBuild);
                 if (buildOverTime != null && buildingInstance.activeInHierarchy)
                 {
                     buildingInstance.gameObject.SetActive(false);
@@ -137,6 +143,9 @@ namespace HexGame.Units
 
         public override void StopBehavior()
         {
+            if (GameStateManager.LeavingScene)
+                return;
+
             if (usb == null)
                 usb = GetComponent<UnitStorageBehavior>();
 
@@ -146,7 +155,7 @@ namespace HexGame.Units
             fogRevealer.gameObject.SetActive(false);
         }
 
-        private void AreAllResoucesDelivered(UnitStorageBehavior usb, ResourceAmount resource)
+        protected void AreAllResoucesDelivered(UnitStorageBehavior usb, ResourceAmount resource)
         {
             resourceConsumed?.Invoke(resource);
 
@@ -156,17 +165,17 @@ namespace HexGame.Units
                     return;
             }
 
-            if(buildOverTime == null)
+            if (buildOverTime == null)
                 BuildingDone();
         }
 
-        private void BuildingDone(BuildOverTime bto)
+        protected void BuildingDone(BuildOverTime bto)
         {
             bto.activationComplete -= BuildingDone;
             BuildingDone();
         }
 
-        private void BuildingDone()
+        protected void BuildingDone()
         {
             buildingComplete?.Invoke(this, buildingPrefab);
             StopBehavior();
@@ -175,15 +184,26 @@ namespace HexGame.Units
 
         public void SetTypeToBuild(PlayerUnitType unitType, GameObject building, GameObject placeHolder, List<ResourceAmount> costs)
         {
+            if (building == null || placeHolder == null || costs == null)
+            {
+                return;
+            }
+
             this.buildingPrefab = building;
             this.placeHolderPrefab = placeHolder;
             this.stats = building.GetComponent<PlayerUnit>().GetStats();
             neededResources = costs;
             unitTypeToBuild = unitType;
+            progressBar.SetLabel(unitTypeToBuild.ToNiceString());
             CreatePlaceHolder();
+
+            // Set storage limits to match build costs
+            if (usb == null)
+                usb = GetComponent<UnitStorageBehavior>();
+            usb.AdjustStorageForBuildCosts(costs);
         }
 
-        private void CreatePlaceHolder()
+        protected void CreatePlaceHolder()
         {
             if (buildingInstance != null)
                 Destroy(buildingInstance);
@@ -211,7 +231,7 @@ namespace HexGame.Units
                 mr.material = material;
         }
 
-        public bool IsValidPlacement()
+        public virtual bool IsValidPlacement()
         {
             HexTile tile = HexTileManager.GetHexTileAtLocation(this.transform.position);
             if (tile == null)
@@ -224,11 +244,7 @@ namespace HexGame.Units
                 return false;
 
             if (!stats.placementList.Contains(tile.TileType) || !stats.CanPlaceAtLocation(this.transform.position))
-            {
-                //if(lastTileType != tile.tileType)
-                //    MessagePanel.ShowMessage($"Can not place {unitTypeToBuild} on {tile.tileType}.", this.gameObject);
                 return false;
-            }
 
             if (tile.TryGetComponent(out FogGroundTile fgt) && !fgt.HasBeenRevealed)
                 return false;
@@ -269,13 +285,14 @@ namespace HexGame.Units
             if (usb == null)
                 usb = GetComponent<UnitStorageBehavior>();
 
-            List<ResourceType> allowedTypes = new List<ResourceType>();
-            foreach (var resource in neededResources)
+            HashSet<ResourceType> neededTypes = new ();
+            for (int i = 0; i < neededResources.Count; i++)
             {
-                allowedTypes.Add(resource.type);
+                ResourceAmount resource = neededResources[i];
+                neededTypes.Add(resource.type);
             }
 
-            usb.SetAllowedTypes(allowedTypes);
+            usb.SetDeliverTypes(neededTypes);
         }
     }
 }

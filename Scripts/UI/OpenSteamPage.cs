@@ -8,11 +8,11 @@ public class OpenSteamPage : MonoBehaviour
     private void OnEnable()
     {
         button = GetComponent<Button>();
-        button.clicked += SteamManager.OpenSteamPage;
+        button.Clicked += SteamManager.OpenSteamPage;
     }
 
     private void OnDisable()
     {
-        button.clicked -= SteamManager.OpenSteamPage;
+        button.Clicked -= SteamManager.OpenSteamPage;
     }
 }

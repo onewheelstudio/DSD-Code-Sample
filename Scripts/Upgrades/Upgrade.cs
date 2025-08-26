@@ -1,8 +1,6 @@
-using System.Collections;
+using Sirenix.OdinInspector;
 using System.Collections.Generic;
 using UnityEngine;
-using Sirenix.OdinInspector;
-using HexGame.Resources;
 
 [CreateAssetMenu(menuName = "Hex/Upgrades/Upgrade")]
 public abstract class Upgrade : UpgradeBase
@@ -21,6 +19,9 @@ public abstract class Upgrade : UpgradeBase
     public abstract void DoUpgrade();
     protected void UnlockQuests()
     {
+        if (SaveLoadManager.Loading)
+            return;
+
         if (unlockQuests != null)
         {
             DirectiveMenu directiveMenu = FindObjectOfType<DirectiveMenu>();
@@ -51,11 +52,13 @@ public abstract class Upgrade : UpgradeBase
         switch(tier)
         {
             case 0:
-                return 500;
+                return 1500;
             case 1:
-                return 500;
+                return 3000;
             case 2:
-                return 3500;
+                return 10000;
+            case 3:
+                return 30000;
         }
 
         tier++;

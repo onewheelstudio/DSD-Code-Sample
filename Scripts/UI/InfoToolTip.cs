@@ -1,12 +1,10 @@
+using Nova;
+using NovaSamples.UIControls;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using System;
-using Nova;
 using UnityEngine.InputSystem;
-using static UnityEngine.InputSystem.InputBinding;
-using static UnityEngine.InputSystem.Samples.RebindUI.RebindActionUI;
-using HexGame.Resources;
 
 public class InfoToolTip : MonoBehaviour, IHavePopupInfo, IHaveIcon
 {
@@ -18,16 +16,40 @@ public class InfoToolTip : MonoBehaviour, IHavePopupInfo, IHaveIcon
     [SerializeField] private Vector2 offset;
 
     public static event Action<List<PopUpInfo>, Sprite, Vector2, InfoToolTip> openToolTip;
-    public static event Action<List<PopUpResource>> openToolTipStats;
+    public static event Action<List<PopUpResourceAmount>> openToolTipStats;
     public static event Action<InfoToolTip> closeToolTip;
+    //public Alignment alignment = Alignment.TopCenter;
 
     [Header("Hotkey Tooltip")]
     [SerializeField] private InputActionReference action;
+
+    private void OnValidate()
+    {
+        if(this.gameObject.TryGetComponent(out ItemView itemView))
+        {
+            if (itemView != null)
+            {
+                if (itemView.Visuals is ButtonVisuals buttonVisuals)
+                    buttonVisuals.toolTip = this;
+            }
+        }
+    }
 
     public void SetToolTipInfo(string title, Sprite icon, string description)
     {
         this.title = title;
         this.icon = icon;
+        this.description = description;
+    }
+
+    public void SetDescription(string description)
+    {
+        this.description = description;
+    }
+    
+    public void SetToolTipInfo(string title, string description)
+    {
+        this.title = title;
         this.description = description;
     }
     

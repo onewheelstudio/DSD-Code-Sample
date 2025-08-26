@@ -1,14 +1,17 @@
 ﻿using DG.Tweening;
 using HexGame.Grid;
 using Nova;
+using Nova.Animations;
 using NovaSamples.UIControls;
 using Sirenix.OdinInspector;
+using Sirenix.Utilities;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-public class HexTechTree : WindowPopup
+public class HexTechTree : WindowPopup, ISaveData
 {
     [Range(1,5f)]
     public float spread = 1f;
@@ -34,6 +37,7 @@ public class HexTechTree : WindowPopup
     private GameObject UIUpgradeTilePrefab;
     [SerializeField]
     private Transform background;
+    public static event Action<int> TierUnlockComplete;
 
     [SerializeField]
     private StatsInfo statInfo;
@@ -49,26 +53,36 @@ public class HexTechTree : WindowPopup
 
     [Header("Button Stuff")]
     [SerializeField] private Button openButton;
-    private Animator openButtonAnimator;
+    private UIBlock2D buttonBlock;
+    private AnimationHandle animationHandle;
 
     private static int totalTechCreditsCollected = 0;
+    private static int techCreditCollectedToday;
+    private static int techCreditCollectedYesterday;
+    public static int TechCreditCollectedYesterday => techCreditCollectedYesterday;
     private static int totalTechCreditsSpent = 0;
+    private static int techCreditSpentToday;
+    private static int techCreditSpentYesterday;
+    public static int TechCreditSpentYesterday => techCreditSpentYesterday;
     public static int TotalTechCreditsCollected => totalTechCreditsCollected;
     private static int techCredits = 0;
     public static int TechCredits => techCredits;
     public static int FirstTechCreditOnDay;
 
     public float zoomScale => background.transform.localScale.x;
+
     private bool techTreeUnlocked = false;
 
     [SerializeField] private Camera overlayCamera;
     [SerializeField] private Camera techTreeCamera;
 
+    private System.Random random;
+
     private void Awake()
     {
         upgradeTiles = new Dictionary<Hex3, UpgradeTile>();
-        openButtonAnimator = openButton.GetComponent<Animator>();
-        canvasResolution = GameObject.FindObjectOfType<Nova.ScreenSpace>().ReferenceResolution;
+        buttonBlock = openButton.GetComponent<UIBlock2D>();
+        canvasResolution = FindFirstObjectByType<Nova.ScreenSpace>().ReferenceResolution;
         canvasScale = Screen.width / (float)canvasResolution.x;
         techCredits = ES3.Load<int>(GameConstants.techCredits, GameConstants.StatsPath, 0);
         totalTechCreditsCollected = ES3.Load<int>(GameConstants.totalTechCreditsCollected, GameConstants.StatsPath, 0);
@@ -76,6 +90,7 @@ public class HexTechTree : WindowPopup
         CheatCodes.AddButton(ClearTechCredits, "Clear Tech Credits");
         CheatCodes.AddButton(() => ReputationManager.ChangeReputation(100), "Reputation +100");
         CheatCodes.AddButton(() => ReputationManager.LoseReputation(100), "Rep Penality -200");
+        CheatCodes.AddButton(UnlockTier, "Unlock Next Tier");
 
         //this should be removed for the demo...?
         ClearTechCredits();
@@ -83,17 +98,27 @@ public class HexTechTree : WindowPopup
 
         radius =  spread * UIUpgradeTilePrefab.GetComponent<UIBlock>().Size.Value.y / (2f * canvasResolution.y * canvasScale);
         UISize = background.GetComponent<UIBlock>().Size.XY.Value;
+
+        int seed = FindAnyObjectByType<HexTileManager>().RandomizeSeed;
+        random = new System.Random(seed);
+
+        RegisterDataSaving();
+
 #if UNITY_EDITOR
         GetUpgrades();
 #endif
+        OpenWindow(); //just in case we close it in the editor - it needs to be open to generate the tree
         CreateTree();
     }
-
 
     [Button]
     private void ReGenerate()
     {
-        for(int i = 0; upgradeTiles.Keys.Count > 0; i++)
+        //make sure random is the same
+        int seed = FindAnyObjectByType<HexTileManager>().RandomizeSeed;
+        random = new System.Random(seed);
+
+        for (int i = 0; upgradeTiles.Keys.Count > 0; i++)
         {
             Hex3 key = upgradeTiles.Keys.ElementAt(0);
             Destroy(upgradeTiles[key].gameObject);
@@ -123,6 +148,12 @@ public class HexTechTree : WindowPopup
         UnLockTechTree.unLockTechTree += ButtonOn;
         firstTechCreditCollected += ButtonOn;
         UpgradeTile.upgradeStatusChange += UpgradeStatusChanged;
+        UpgradeTile.upgradePurchased += CheckTierComplete;
+        UpgradeTile.purchaseFailed += PurchaseFailed;
+
+        StockMarket.resourceSold += ChangeTechCredits;
+
+        DayNightManager.toggleDay += NewDay;
 
         interactableControl = new InteractableControl(this.transform);
         CloseWindow();
@@ -132,17 +163,24 @@ public class HexTechTree : WindowPopup
     {
         base.OnDisable();
         UpgradeTile.upgradeStatusChange -= UpgradeStatusChanged;
+        UpgradeTile.upgradePurchased -= CheckTierComplete;
+        UpgradeTile.purchaseFailed -= PurchaseFailed;
+
         DirectiveQuest.questCompleted -= UpdateRepInfo;
         DirectiveQuest.questFailed -= UpdateRepInfo;
         techCreditChanged -= UpdateRepInfo;
         LockTechTree.lockTechTree -= ButtonOff;
         UnLockTechTree.unLockTechTree -= ButtonOn;
         firstTechCreditCollected -= ButtonOn;
+
+        StockMarket.resourceSold -= ChangeTechCredits;
+        DayNightManager.toggleDay -= NewDay;
+
         ES3.Save<int>(GameConstants.techCredits, techCredits, GameConstants.StatsPath);
         ES3.Save<int>(GameConstants.totalTechCreditsCollected, totalTechCreditsCollected, GameConstants.StatsPath);
         DOTween.Kill(this,true);
-        Debug.Log("Tech Tree Disabling", this.gameObject);
     }
+
 
     private void UpgradeStatusChanged(UpgradeTile tile, Upgrade.UpgradeStatus status)
     {
@@ -154,7 +192,7 @@ public class HexTechTree : WindowPopup
     private void GetUpgrades()
     {
         upgradeList.Clear();
-        upgradeList = HelperFunctions.GetScriptableObjects<Upgrade>("Assets/Prefabs/Upgrades");
+        upgradeList = HelperFunctions.GetScriptableObjects<Upgrade>("Assets/ScriptableObjects/Upgrades");
     }
 
     public bool CanUnlock(Hex3 upgradeLocation)
@@ -296,11 +334,11 @@ public class HexTechTree : WindowPopup
     private Hex3 FinalSort(HashSet<Hex3> locations, int tier)
     {
         if(tier <= 1)
-            return locations.ElementAt(HexTileManager.GetNextInt(0, locations.Count));
+            return locations.ElementAt(random.Next(0, locations.Count));
 
         while (locations.Count > 0)
         {
-            Hex3 location = locations.ElementAt(HexTileManager.GetNextInt(0, locations.Count));
+            Hex3 location = locations.ElementAt(random.Next(0, locations.Count));
             List<Hex3> neighbors = Hex3.GetNeighborLocations(location);
             bool isGood = true;
             for (int i = 0; i < tier - 1; i++)
@@ -424,11 +462,25 @@ public class HexTechTree : WindowPopup
         if (count > 0)
         {
             totalTechCreditsCollected += count;
+            techCreditCollectedToday += count;
             techCreditEarned?.Invoke(count);
         }
         else
+        {
             totalTechCreditsSpent += count;
+            techCreditSpentToday += count;
+        }
         techCreditChanged?.Invoke();
+    }
+
+
+    private void NewDay(int obj)
+    {
+        techCreditCollectedYesterday = techCreditCollectedToday;
+        techCreditCollectedToday = 0;
+
+        techCreditSpentYesterday = techCreditSpentToday;
+        techCreditSpentToday = 0;
     }
 
     private void UpdateRepInfo(DirectiveQuest quest)
@@ -448,7 +500,7 @@ public class HexTechTree : WindowPopup
     {
         ES3.Save<int>(GameConstants.techCredits, 0, GameConstants.StatsPath);
         ES3.Save<int>(GameConstants.totalTechCreditsCollected, 0, GameConstants.StatsPath);
-        techCredits = 500;
+        techCredits = 750;
         totalTechCreditsCollected = 0;
     }
 
@@ -457,13 +509,21 @@ public class HexTechTree : WindowPopup
         if(!techTreeUnlocked)
             return;
 
+        if (!animationHandle.IsComplete())
+        {
+            animationHandle.Complete();
+            buttonBlock.Color = Color.white;
+        }
+
         overlayCamera.enabled = false;
         techTreeCamera.enabled = true;
 
         base.OpenWindow();
 
         if(interactableControl != null)
+        {
             interactableControl.SetInteractable(true);
+        }
 
         background.gameObject.SetActive(true);
         UpdateRepInfo();
@@ -481,10 +541,6 @@ public class HexTechTree : WindowPopup
             interactableControl.SetInteractable(false);
         background.gameObject.SetActive(false);
         techTreeOpen?.Invoke(false);
-
-        if(TotalTechCreditsCollected > 0)
-            openButtonAnimator.SetTrigger("ButtonOn");
-
     }
 
     private void ButtonOff()
@@ -494,7 +550,11 @@ public class HexTechTree : WindowPopup
             return;
 
         openButton.GetComponent<Interactable>().ClickBehavior = ClickBehavior.None;
-        openButtonAnimator.SetTrigger("ButtonOff");
+        if (!animationHandle.IsComplete())
+        {
+            animationHandle.Complete();
+            buttonBlock.Color = Color.white;
+        }
     }
 
     private void ButtonOn()
@@ -506,7 +566,174 @@ public class HexTechTree : WindowPopup
             return;
 
         openButton.GetComponent<Interactable>().ClickBehavior = ClickBehavior.OnRelease;
-        openButtonAnimator.SetTrigger("Highlight");
+        if(!StateOfTheGame.tutorialSkipped && !SaveLoadManager.Loading)
+        {
+            ButtonHighlightAnimation animation = new ButtonHighlightAnimation()
+            {
+                startSize = new Vector3(50, 50, 0),
+                endSize = new Vector3(50, 50, 0) * 1.1f,
+                startColor = ColorManager.GetColor(ColorCode.callOut),
+                endColor = ColorManager.GetColor(ColorCode.callOut),
+                endAlpha = 0.5f,
+                uIBlock = buttonBlock
+            };
+            ButtonIndicator.IndicatorButton(buttonBlock);
+            animationHandle = animation.Loop(1f, -1);
+        }
+        else
+            buttonBlock.Color = Color.white;
     }
 
+    /// <summary>
+    /// Are there any upgrades that can be unlocked in the current game state?
+    /// </summary>
+    /// <returns></returns>
+    public static bool AnyUpgradesToUnlock()
+    {
+        foreach (var upgrade in upgradeTiles.Values)
+        {
+            if (upgrade.CanBeUnlocked())
+                return true;
+        }
+
+        return false;
+    }
+
+    private const string TECH_TREE_PATH = "TechTree";
+
+    public void RegisterDataSaving()
+    {
+        SaveLoadManager.RegisterData(this, 10000);
+    }
+
+    public void Save(string savePath, ES3Writer writer)
+    {
+        TechTreeData techTreeData = new TechTreeData
+        {
+            TechCredits = techCredits,
+            TotalTechCreditsCollected = totalTechCreditsCollected,
+            TotalTechCreditsSpent = totalTechCreditsSpent,
+            FirstTechCreditOnDay = FirstTechCreditOnDay,
+            TechTreeUnlocked = techTreeUnlocked
+        };
+
+        techTreeData.UpgradeStatus = new List<UpgradeData>();
+        foreach (var location in upgradeTiles.Keys)
+        {
+            UpgradeData upgradeData = new UpgradeData
+            {
+                location = location,
+                status = upgradeTiles[location].status
+            };
+
+            techTreeData.UpgradeStatus.Add(upgradeData);
+        }
+
+        writer.Write<TechTreeData>(TECH_TREE_PATH, techTreeData);
+    }
+     
+    public IEnumerator Load(string loadPath, Action<string> postUpdateMessage)
+    {
+        if(ES3.KeyExists(TECH_TREE_PATH, loadPath))
+        {
+            TechTreeData techTreeData = ES3.Load<TechTreeData>(TECH_TREE_PATH, loadPath);
+            techCredits = techTreeData.TechCredits;
+            techCreditChanged?.Invoke();
+            totalTechCreditsCollected = techTreeData.TotalTechCreditsCollected;
+            totalTechCreditsSpent = techTreeData.TotalTechCreditsSpent;
+            FirstTechCreditOnDay = techTreeData.FirstTechCreditOnDay;
+            techTreeUnlocked = techTreeData.TechTreeUnlocked;
+
+            if (techTreeUnlocked)
+                ButtonOn();
+            else
+                ButtonOff();
+
+            background.gameObject.SetActive(true);
+            ReGenerate();
+            background.gameObject.SetActive(false);
+
+            foreach (var upgradeData in techTreeData.UpgradeStatus)
+            {
+                if (!upgradeTiles.ContainsKey(upgradeData.location))
+                    continue;
+
+                upgradeTiles[upgradeData.location].SetStatus(upgradeData.status);
+                if(upgradeData.status == Upgrade.UpgradeStatus.purchased)
+                {
+                    upgradeTiles[upgradeData.location].upgrade.DoUpgrade();
+                    UnlockNeighbors(upgradeData.location);
+                }
+            }
+
+            //we've replaced the interactables so we need to update
+            interactableControl.Update();
+        }
+
+        yield return null;
+    }
+
+    public static List<string> GetDataNames()
+    {
+        return new List<string>() { TECH_TREE_PATH };
+    }
+
+    public List<Upgrade> GetUpgradeList()
+    {
+        return upgradeList;
+    }
+
+    public struct TechTreeData
+    {
+        public int TechCredits;
+        public int TotalTechCreditsCollected;
+        public int TotalTechCreditsSpent;
+        public int FirstTechCreditOnDay;
+        public List<UpgradeData> UpgradeStatus;
+        public bool TechTreeUnlocked;
+    }
+
+    public struct UpgradeData
+    {
+        public Hex3 location;
+        public Upgrade.UpgradeStatus status;
+    }
+
+    private int tierToUnlock = 0;
+
+    private void UnlockTier()
+    {
+        upgradeTiles.Values.Where(u => u.upgrade.upgradeTier == tierToUnlock).ForEach(u => u.ForcePurchase());
+        MessagePanel.ShowMessage($"Tier {tierToUnlock} Unlocked", this.gameObject);
+        tierToUnlock++;
+    }
+
+    private void CheckTierComplete(UpgradeTile tile)
+    {
+        //don't check for tier 0 unlock
+        int upgradeTier = tile.upgrade.upgradeTier == 0 ? 1 : tile.upgrade.upgradeTier;
+        if(IsTierComplete(upgradeTier))
+        {
+            TierUnlockComplete?.Invoke(upgradeTier);
+        }
+    }
+
+    private bool IsTierComplete(int upgradeTier)
+    {
+        foreach (var tile in HexTechTree.upgradeTiles.Values)
+        {
+            if (tile.upgrade.upgradeTier == upgradeTier && tile.status != Upgrade.UpgradeStatus.purchased)
+                return false;
+        }
+
+        return true;
+    }
+
+    private void PurchaseFailed(UpgradeTile tile)
+    {
+        UIBlock2D block = techCreditText.transform.parent.GetComponent<UIBlock2D>();
+        block.BodyEnabled = true;
+        block.DOColor(ColorManager.GetColor(ColorCode.offPriority), 0.1f);
+        block.DOColor(Color.clear, 0.1f).SetDelay(1.5f).OnComplete(() => block.BodyEnabled = false);
+    }
 }

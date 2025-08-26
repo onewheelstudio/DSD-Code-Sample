@@ -1,19 +1,22 @@
+using HexGame.Grid;
 using HexGame.Resources;
+using Sirenix.OdinInspector;
 using System;
-using System.Collections;
-using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
 public class ResourceTile : MonoBehaviour
 {
     [SerializeField] private HexTile hexTile;
+    public Hex3 Location => hexTile.hexPosition;
     public HexTileType TileType => hexTile.TileType;
     [SerializeField] private ResourceType resourceType;
     public ResourceType ResourceType => resourceType;
 
     private int startingResourceAmount;
     [SerializeField] private int resourceAmount = 1000;
+    [Tooltip("Amount is in 100s, so 15 = 1500")]
+    [MinMaxSlider(10,200, ShowFields = true), SerializeField] private Vector2Int resourceRange = new Vector2Int(10,30);
     public int ResourceAmount => resourceAmount;
 
     public static event Action<ResourceTile> resourceTileDepleted;
@@ -28,7 +31,14 @@ public class ResourceTile : MonoBehaviour
     private void Awake()
     {
         hexTile = GetComponentInParent<HexTile>();
+        resourceAmount = HexTileManager.GetNextInt(resourceRange.x, resourceRange.y) * 100;
         startingResourceAmount = resourceAmount;
+    }
+
+    private void Start()
+    {
+        if (!SaveLoadManager.Loading)
+            SetAmountBasedOnLocation();
     }
 
     private void OnEnable()
@@ -62,26 +72,57 @@ public class ResourceTile : MonoBehaviour
     {
         if((float)resourceAmount / (float)startingResourceAmount > 0.5f)
         {
-            completeTile?.SetActive(true);
-            partialTile?.SetActive(false);
-            depletedTile?.SetActive(false);
+            if(completeTile != null)
+                completeTile.SetActive(true);
+            if(partialTile != null)
+                partialTile.SetActive(false);
+            if(depletedTile != null)
+                depletedTile.SetActive(false);
         }
         else if((float)resourceAmount / (float)startingResourceAmount > 0.01f)
         {
-            completeTile?.SetActive(false);
-            partialTile?.SetActive(true);
-            depletedTile?.SetActive(false);
+            if(completeTile != null)
+                completeTile.SetActive(false);
+            if(partialTile != null)
+                partialTile.SetActive(true);
+            if(depletedTile != null)
+                depletedTile.SetActive(false);
         }
         else
         {
-            completeTile?.SetActive(false);
-            partialTile?.SetActive(false);
-            depletedTile?.SetActive(true);
+            if(completeTile != null)
+                completeTile.SetActive(false);
+            if(partialTile != null)
+                partialTile.SetActive(false);
+            if(depletedTile != null)
+                depletedTile.SetActive(true);
         }
     }
 
     private void TileRevealed()
     {
         resourceTileRevealed?.Invoke(resourceType, this);
+    }
+
+    public void SetResourceAmount(int amount)
+    {
+        resourceAmount = amount;
+        SetTileObject();
+    }
+
+    private void SetAmountBasedOnLocation()
+    {
+        switch (hexTile.TileType)
+        {
+            case HexTileType.feOre:
+                if(Hex3.DistanceBetween(Location, Hex3.Zero) < 7)
+                {
+                    resourceAmount *= 2;
+                    startingResourceAmount = resourceAmount;
+                }
+                break;
+            default:
+                break;
+        }
     }
 }

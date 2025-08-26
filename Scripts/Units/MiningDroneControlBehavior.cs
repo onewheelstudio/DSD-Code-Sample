@@ -3,12 +3,13 @@ using HexGame.Resources;
 using HexGame.Units;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
 public class MiningDroneControlBehavior : UnitBehavior
 {
-    [SerializeField] private HexTileType requiredTileType;  
+    [SerializeField] private List<HexTileType> requiredTileTypes;  
     private ResourceProductionBehavior resourceProductionBehavior;
     private Drone[] miningDrones;
     private WaitForSeconds miningDelay = new WaitForSeconds(0.25f);
@@ -29,7 +30,7 @@ public class MiningDroneControlBehavior : UnitBehavior
     {
         this.isFunctional = true;
         miningDrones = this.GetComponentsInChildren<Drone>();
-        StartCoroutine(DoDroneMovement());
+        DoDroneMovement();
     }
 
     public override void StopBehavior()
@@ -37,49 +38,62 @@ public class MiningDroneControlBehavior : UnitBehavior
        this.isFunctional = false;
     }
 
-    IEnumerator DoDroneMovement()
+    private async void DoDroneMovement()
     {
         if(miningDrones == null)
-            yield break;
+            return;
 
         //wait until we can produce at least on start up
-        yield return new WaitUntil(() => resourceProductionBehavior.CanIProduce());
+        while (resourceProductionBehavior != null && !resourceProductionBehavior.CanIProduceFast())
+            await Awaitable.NextFrameAsync();
 
-        while(true)
+        while (true && !this.destroyCancellationToken.IsCancellationRequested)
         {
             foreach (var drone in miningDrones)
             {
-                if(drone.IsMining)
+                if(this.destroyCancellationToken.IsCancellationRequested)
+                    return;
+
+                if(drone.IsDoing)
                 {
-                    yield return null;
+                    await Awaitable.NextFrameAsync();
                     continue;
                 }
 
-                yield return miningDelay;
+                if (this.destroyCancellationToken.IsCancellationRequested)
+                    return; 
+                await Awaitable.WaitForSecondsAsync(0.25f);
 
-                if(GetNearbyTile(this.gameObject, requiredTileType, out Hex3 location))
+                if(GetNearbyTile(this.gameObject, requiredTileTypes, out Hex3 location))
                     drone.MoveToLocation(location);
 
                 if(!this.isFunctional)
                 {
-                    drone.DoReturnToStart();
-                    yield break;
+                    drone.DoReturnToPosition();
+                    return;
                 }
             }
 
-            if(!resourceProductionBehavior.CanIProduce())
+            if (resourceProductionBehavior == null)
+                return;
+
+            if(!resourceProductionBehavior.CanIProduceFast())
             {
                 foreach (var drone in miningDrones)
                 {
-                    drone.DoReturnToStart();
+                    drone.DoReturnToPosition();
                 }
 
-                yield return new WaitUntil(() => resourceProductionBehavior.CanIProduce());
+                if (this.destroyCancellationToken.IsCancellationRequested)
+                    return;
+
+                while (resourceProductionBehavior != null && !resourceProductionBehavior.CanIProduceFast())
+                    await Awaitable.NextFrameAsync();
             }
         }
     }
 
-    public bool GetNearbyTile(GameObject gameObject, HexTileType requiredTileType, out Hex3 location)
+    public bool GetNearbyTile(GameObject gameObject, List<HexTileType> requiredTileTypes, out Hex3 location)
     {      
         IOrderedEnumerable<Hex3> neighbors = Hex3.GetNeighborsAtDistance(gameObject.transform.position, 1)
                                                 .OrderBy(x => Guid.NewGuid());
@@ -87,7 +101,7 @@ public class MiningDroneControlBehavior : UnitBehavior
         foreach (var hex3 in neighbors)
         {
             tile = HexTileManager.GetHexTileAtLocation(hex3);
-            if (tile != null && tile.TileType == requiredTileType)
+            if (tile != null && requiredTileTypes.Contains(tile.TileType))
             {
                 location = hex3;
                 return true;
@@ -104,7 +118,8 @@ public class MiningDroneControlBehavior : UnitBehavior
         {
             if (useCondition is UseNearTile useNearTile)
             {
-                requiredTileType = useNearTile.RequiredTileType;
+                //create new list so we don't modify the original
+                requiredTileTypes = new List<HexTileType>(useNearTile.RequiredTiles);
                 return;
             }
         }

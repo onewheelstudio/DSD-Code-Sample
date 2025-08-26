@@ -12,18 +12,27 @@ public class BuildOverTime : MonoBehaviour
 {
     [SerializeField]private List<Transform> buildingParts;
     [SerializeField, Range(0, 1),OnValueChanged("UpdateProgress")] private float progress = 0f;
-    [SerializeField] private GameObject dust;
+    [SerializeField, AssetsOnly] private GameObject dust;
     private int activeParts = 0;
     private int numberToActivate = 0;
     private bool isActivating = false;
     public event Action<BuildOverTime> activationComplete;
     protected static ObjectPool<PoolObject> dustPool;
 
+    [Header("For Content Creation")]
+    [SerializeField]
+    private bool buildOnAwake = false;
+
     private void Awake()
     {
         if(dustPool == null && dust != null)
             dustPool = new ObjectPool<PoolObject>(dust);
+
+        if (buildOnAwake)
+            StartCoroutine(BuildWithDelay());
     }
+
+
 
     [Button]
     private void Refresh()
@@ -71,6 +80,18 @@ public class BuildOverTime : MonoBehaviour
     public void UpdateProgress(float progress)
     {
         numberToActivate = Mathf.FloorToInt(progress * buildingParts.Count);
+
+        if (Application.isPlaying)
+            return;
+
+        //this is just for testing
+        for (int i = 0; i < buildingParts.Count; i++)
+        {
+            if (i >= buildingParts.Count)
+                break;
+
+            buildingParts[i].gameObject.SetActive(i < numberToActivate);
+        }
     }
 
     private IEnumerator ActivateParts()
@@ -86,8 +107,6 @@ public class BuildOverTime : MonoBehaviour
                 Vector3 position = buildingParts[activeParts].transform.position;
                 buildingParts[activeParts].transform.position -= Vector3.up * 2 * position.y;
                 buildingParts[activeParts].transform.DOMove(position, 0.25f);
-                //buildingParts[activeParts].localScale = Vector3.zero;
-                //buildingParts[activeParts].DOScale(startScale, 0.25f);
                 if(dust)
                     dustPool.Pull(position, Quaternion.identity);
                 activeParts++;
@@ -118,5 +137,11 @@ public class BuildOverTime : MonoBehaviour
         }
 
         activationComplete?.Invoke(this);
+    }
+
+    private IEnumerator BuildWithDelay()
+    {
+        yield return new WaitForSeconds(1f);
+        UpdateProgress(1f);
     }
 }

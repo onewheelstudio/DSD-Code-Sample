@@ -30,21 +30,21 @@ public class MinimapManager : MonoBehaviour
 
     private void OnEnable()
     {
-        zoomInButton.clicked += ZoomIn;
-        zoomOutButton.clicked += ZoomOut;
-        goToOriginButton.clicked += MoveToOrigin;
+        zoomInButton.Clicked += ZoomIn;
+        zoomOutButton.Clicked += ZoomOut;
+        goToOriginButton.Clicked += MoveToOrigin;
 
         MinimapControls.minimapClicked += MiniMapClicked;
-        enemyLayerButton.clicked += ToggleMinimapEnemyLayer;
-        playerLayerButton.clicked += ToggleMinimapPlayerLayer;
-        hextileLayerButton.clicked += ToggleMinimapTileLayer;
+        enemyLayerButton.Clicked += ToggleMinimapEnemyLayer;
+        playerLayerButton.Clicked += ToggleMinimapPlayerLayer;
+        hextileLayerButton.Clicked += ToggleMinimapTileLayer;
     }
 
     void OnDisable()
     {
-        zoomInButton.clicked -= ZoomIn;
-        zoomOutButton.clicked -= ZoomOut;
-        goToOriginButton.clicked -= MoveToOrigin;
+        zoomInButton.Clicked -= ZoomIn;
+        zoomOutButton.Clicked -= ZoomOut;
+        goToOriginButton.Clicked -= MoveToOrigin;
 
         MinimapControls.minimapClicked -= MiniMapClicked;
         DOTween.Kill(this,true);

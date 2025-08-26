@@ -1,6 +1,4 @@
 using Nova;
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class HappinessIndicator : MonoBehaviour
@@ -13,47 +11,25 @@ public class HappinessIndicator : MonoBehaviour
     [SerializeField] private TextBlock efficiencyText;
     [SerializeField] InfoToolTip toolTip;
 
-    private void Start()
-    {
-        StartCoroutine(UpdateHappiness());
-    }
-
     private void OnEnable()
     {
-        WorkerManager.workerStateChanged += DelayUpdateHappiness;
-        WorkerMenu.WagesSet += DelayUpdateHappiness;
-        WorkerMenu.RationSet += DelayUpdateHappiness;
-        DayNightManager.toggleDay += DelayUpdateHappiness;
+        WorkerManager.EfficiencyChanged += UpdateHappiness;
     }
 
     private void OnDisable()
     {
-        WorkerManager.workerStateChanged -= DelayUpdateHappiness;
-        WorkerMenu.WagesSet -= DelayUpdateHappiness;
-        WorkerMenu.RationSet -= DelayUpdateHappiness;
-        DayNightManager.toggleDay -= DelayUpdateHappiness;
+        WorkerManager.EfficiencyChanged -= UpdateHappiness;
     }
 
-    private void DelayUpdateHappiness(int dayNumber)
+    private void UpdateHappiness(float Efficiency)
     {
-        DelayUpdateHappiness();
-    }
-    private void DelayUpdateHappiness()
-    {
-        StartCoroutine(UpdateHappiness());
-    }
-
-    private IEnumerator UpdateHappiness()
-    {
-        //delay one frame so worker manager can update
-        yield return null;
         float efficiency = WorkerManager.globalWorkerEfficiency;
         int happiness = WorkerManager.happiness;
         icon.Color = gradient.Evaluate(efficiency);
 
-        string tooltipText = $"Compliance: {happiness}\nEfficiency: {efficiency * 100}%";
-        if(efficiencyText != null)
-            efficiencyText.Text = ($"{efficiency * 100}%");
+        string tooltipText = $"Compliance: {happiness}\nEfficiency: {Mathf.RoundToInt(efficiency * 100)}%\nDaily Cost: {(WorkerManager.wages * WorkerManager.TotalWorkers).ToString()}";
+        if (efficiencyText != null)
+            efficiencyText.Text = ($"{Mathf.RoundToInt(efficiency * 100)}%");
 
         if (efficiency >= 0.85f)
         {
@@ -62,7 +38,7 @@ public class HappinessIndicator : MonoBehaviour
         }
         else if (efficiency > 0.70f)
         {
-            icon.SetImage(neutralFace);
+            icon.SetImage(happyFace);
             toolTip?.SetToolTipInfo("Compliance", happyFace, tooltipText);
         }
         else
@@ -71,5 +47,4 @@ public class HappinessIndicator : MonoBehaviour
             toolTip?.SetToolTipInfo("Compliance", sadFace, tooltipText);
         }
     }
-
 }

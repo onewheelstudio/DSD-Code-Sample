@@ -34,6 +34,7 @@ public class UpgradeTile : MonoBehaviour, IHavePopupInfo
 
     public static event Action<UpgradeTile, Upgrade.UpgradeStatus> upgradeStatusChange;
     public static event Action<UpgradeTile> upgradePurchased;
+    public static event Action<UpgradeTile> purchaseFailed;
 
     protected static GameSettingsManager gameSettingsManager;
 
@@ -65,8 +66,16 @@ public class UpgradeTile : MonoBehaviour, IHavePopupInfo
 
     private void ClickUpgrade(Gesture.OnClick evt, UpgradeUIVisuals target)
     {
-        if (upgrade != null && CanPurchase())
+        if (upgrade == null)
+            return; 
+        
+        if(CanPurchase())
             Purchase();
+        else
+        {
+            SFXManager.PlaySFX(SFXType.error);
+            purchaseFailed?.Invoke(this); 
+        }
     }
 
 
@@ -106,6 +115,20 @@ public class UpgradeTile : MonoBehaviour, IHavePopupInfo
                && !IsDemoBlocked();
     }
 
+    /// <summary>
+    /// Inteneded to help with daily directives
+    /// </summary>
+    /// <returns></returns>
+    public bool CanBeUnlocked()
+    {
+        if (IsDemoBlocked())
+            return false;
+        else if (IsEarlyAccessBlocked())
+            return false;
+        else
+            return status != Upgrade.UpgradeStatus.purchased;
+    }
+
     public bool IsDemoBlocked()
     {
         return gameSettingsManager.IsDemo && upgrade.upgradeTier > gameSettingsManager.MaxTierForDemo;
@@ -120,21 +143,12 @@ public class UpgradeTile : MonoBehaviour, IHavePopupInfo
     {
         if(IsDemoBlocked())
         {
-            MessagePanel.ShowMessage("This upgrade is not available in the demo.", null);
             SFXManager.PlaySFX(SFXType.error);
             return false;
         }
 
         if(IsEarlyAccessBlocked())
         {
-            MessagePanel.ShowMessage("This upgrade is not available in the early access.", null);
-            SFXManager.PlaySFX(SFXType.error);
-            return false;
-        }
-
-        if (!CanPurchase())
-        {
-            MessagePanel.ShowMessage("Can not purchase upgrade.", null);
             SFXManager.PlaySFX(SFXType.error);
             return false;
         }
@@ -148,6 +162,14 @@ public class UpgradeTile : MonoBehaviour, IHavePopupInfo
         SFXManager.PlaySFX(SFXType.newDirective);
 
         return true;
+    }
+
+    public void ForcePurchase()
+    {
+        status = Upgrade.UpgradeStatus.purchased;
+        upgradeStatusChange(this, status);
+        upgradeVisuals.DoUnlock();
+        upgrade.DoUpgrade();
     }
 
     public bool CanUnlock()
